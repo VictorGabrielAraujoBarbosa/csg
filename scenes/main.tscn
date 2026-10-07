@@ -1,0 +1,98 @@
+[gd_scene format=3 uid="uid://ctki50ke4628q"]
+
+[ext_resource type="Script" uid="uid://c6k6jadwydr26" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://bm2pyleq2q5dv" path="res://scripts/grid/kitchen.gd" id="2_kitchen"]
+[ext_resource type="Script" uid="uid://f5n8eguaxpjr" path="res://scripts/camera_rig.gd" id="3_rig"]
+[ext_resource type="Script" uid="uid://cp2kek55850v5" path="res://scripts/build/place_controller.gd" id="4_place"]
+[ext_resource type="Script" uid="uid://svcmrvqcvcmc" path="res://scripts/render/look_config.gd" id="5_look"]
+[ext_resource type="Script" uid="uid://bylw3x4b6qrxj" path="res://scripts/build/map_paint_controller.gd" id="6_paint"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_tefeu"]
+sky_top_color = Color(0.58, 0.62, 0.68, 1)
+sky_horizon_color = Color(0.8, 0.82, 0.85, 1)
+ground_bottom_color = Color(0.3, 0.31, 0.34, 1)
+ground_horizon_color = Color(0.8, 0.82, 0.85, 1)
+
+[sub_resource type="Sky" id="Sky_o6xl0"]
+sky_material = SubResource("ProceduralSkyMaterial_tefeu")
+
+[sub_resource type="Environment" id="Environment_tipki"]
+background_mode = 2
+sky = SubResource("Sky_o6xl0")
+ambient_light_source = 3
+ambient_light_color = Color(0.86, 0.87, 0.9, 1)
+ambient_light_sky_contribution = 0.45
+ambient_light_energy = 0.85
+tonemap_mode = 3
+tonemap_exposure = 0.95
+ssao_enabled = true
+ssao_radius = 1.4
+ssao_intensity = 3.5
+glow_enabled = true
+glow_intensity = 0.25
+glow_hdr_threshold = 1.1
+adjustment_enabled = true
+adjustment_contrast = 1.1
+adjustment_saturation = 1.1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.22, 0.23, 0.26, 1)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(200, 200)
+
+[node name="Main" type="Node3D" unique_id=54847337]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1783479253]
+environment = SubResource("Environment_tipki")
+script = ExtResource("5_look")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2030530562]
+transform = Transform3D(0.76604444, 0.52654076, -0.3686878, 0, 0.57357645, 0.81915206, 0.6427876, -0.62750685, 0.43938506, 0, 0, 0)
+light_energy = 0.35
+
+[node name="Fill" type="DirectionalLight3D" parent="." unique_id=835278909]
+transform = Transform3D(-0.81915206, -0.32898995, 0.46984634, 0, 0.81915206, 0.57357645, -0.57357645, 0.46984634, -0.6710101, 0, 0, 0)
+light_energy = 0.3
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=1141954702]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.002614975, -0.075371325, -0.034351826)
+material_override = SubResource("StandardMaterial3D_ground")
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="Kitchen" type="Node3D" parent="." unique_id=1943393886]
+script = ExtResource("2_kitchen")
+layout_file = "res://resources/layouts/demo_kitchen.txt"
+checker_dark = Color(0.444272, 0.5413801, 0.7004392, 1)
+
+[node name="CameraRig" type="Node3D" parent="." unique_id=80689419]
+script = ExtResource("3_rig")
+camera = NodePath("Camera3D")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=339920797]
+current = true
+fov = 50.0
+
+[node name="PlaceController" type="Node3D" parent="." unique_id=1220837589]
+script = ExtResource("4_place")
+kitchen = NodePath("../Kitchen")
+camera = NodePath("../CameraRig/Camera3D")
+
+[node name="MapPaintController" type="Node3D" parent="." unique_id=1626574699]
+script = ExtResource("6_paint")
+kitchen = NodePath("../Kitchen")
+camera = NodePath("../CameraRig/Camera3D")
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=1932378937]
+
+[node name="Hint" type="Label" parent="UI" unique_id=1541157040]
+offset_left = 12.0
+offset_top = 10.0
+offset_right = 920.0
+offset_bottom = 130.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.75)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 15
+text = "loading..."
