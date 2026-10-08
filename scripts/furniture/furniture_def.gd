@@ -9,6 +9,9 @@ extends Resource
 ## Fallback footprint, used when [member auto_footprint] is off or the model
 ## cannot be measured.
 @export var footprint: Vector2i = Vector2i.ONE
+## Solid pieces block walking (and items sit on top). Non-solid pieces (mats,
+## rugs) still own their cell for placement but can be walked over.
+@export var solid := true
 ## Derive the footprint from the model's actual size (scaled), rounded up per
 ## axis, so multi-cell tables/sofas work without hand-measuring.
 @export var auto_footprint := true

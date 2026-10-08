@@ -141,9 +141,15 @@ func has_floor(cell: Vector2i) -> bool:
 	return data != null and data.has_floor(cell)
 
 
-## A cell a character can stand on: floor, no furniture, no structural point.
+## A cell a character can stand on: floor, no blocking furniture, no point.
+## Non-solid furniture (mats) does not block.
 func is_walkable(cell: Vector2i) -> bool:
-	return has_floor(cell) and not _furniture_by_cell.has(cell) and not is_point(cell)
+	if not has_floor(cell) or is_point(cell):
+		return false
+	var inst: FurnitureInstance = _furniture_by_cell.get(cell)
+	if inst != null and inst.def.solid:
+		return false
+	return true
 
 
 func is_point(cell: Vector2i) -> bool:
@@ -166,12 +172,12 @@ func point_cells(kind: int) -> Array[Vector2i]:
 
 
 ## Where items sit on a cell: on top of the placed piece (measured from its
-## model) or low on the floor.
+## model) or low on the floor. Non-solid pieces (mats) count as floor.
 func surface_height(cell: Vector2i) -> float:
 	if is_point(cell):
 		return _point_top
 	var inst: FurnitureInstance = _furniture_by_cell.get(cell)
-	if inst != null:
+	if inst != null and inst.def.solid:
 		return inst.surface_y
 	return 0.05
 

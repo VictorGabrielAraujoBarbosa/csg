@@ -75,6 +75,8 @@ func _ready() -> void:
 		_place_demo_furniture(kitchen)
 	if "--sim" in OS.get_cmdline_user_args():
 		_run_sim(scene)
+	if "--sim-ticks=" in " ".join(OS.get_cmdline_user_args()) and kitchen != null:
+		_run_sim_ticks(scene)
 	if "--check" in OS.get_cmdline_user_args() and kitchen != null and kitchen.data != null:
 		var text: String = kitchen.data.to_text()
 		var reparsed := KitchenLayout.from_text(text)
@@ -205,8 +207,26 @@ func _put(kitchen: Kitchen, by_id: Dictionary, id: StringName, cell: Vector2i, s
 		print("could not place ", id, " at ", cell)
 
 
-## Runs the order -> jobs -> items pipeline headlessly (instant executor) and
-## asserts the whole burger cycle, including the tray recycling through the sink.
+## Runs exactly N ticks (so a screenshot can catch workers mid-action).
+func _run_sim_ticks(scene: Node) -> void:
+	var service := scene.get_node_or_null("Service") as Service
+	if service == null:
+		return
+	service.sim_speed = 0.0
+	service.orders.arrive_on_turn_in = false
+	for order in service.orders.active_orders():
+		service.plan_order(order)
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--sim-ticks="):
+			service.run_ticks(int(arg.split("=")[1]))
+	for worker in service.workers:
+		print("[sim-ticks] %s cell=%s state=%s carrying=%s" % [worker.name, worker.cell, worker.state_name(),
+			worker.carried() != null])
+	print("[sim-ticks] ", service.status_text())
+
+
+## Runs the order -> jobs -> items pipeline headlessly (workers, tick by tick)
+## and asserts the whole burger cycle, including tray recycling through the sink.
 func _run_sim(scene: Node) -> void:
 	var service := scene.get_node_or_null("Service") as Service
 	if service == null:
@@ -217,7 +237,7 @@ func _run_sim(scene: Node) -> void:
 	# The service tried to plan before the furniture existed; plan for real now.
 	for order in service.orders.active_orders():
 		service.plan_order(order)
-	var ticks := service.run_until_idle(4000)
+	var ticks := service.run_until_idle(20000)
 	print("[sim] first order: ticks=", ticks, " completed=", service.orders.completed_count,
 		" money=", service.orders.money, " trays=", _tray_count(service),
 		" items=", service.items.items.size())
@@ -230,7 +250,7 @@ func _run_sim(scene: Node) -> void:
 	service.orders.arrive_on_turn_in = true
 	service.request_order()
 	var loop_ticks := 0
-	while service.orders.completed_count < 4 and loop_ticks < 8000:
+	while service.orders.completed_count < 4 and loop_ticks < 40000:
 		if service.board.pending_count() == 0 and not service.has_active_jobs():
 			break
 		service.tick_once()
@@ -242,6 +262,19 @@ func _run_sim(scene: Node) -> void:
 	_expect(service.orders.completed_count >= 4, "sim: repeated orders keep completing")
 	_expect(_log_has(service, "Wash Tray"), "sim: the sink washed a dirty tray back into the pool")
 	_expect(_tray_count(service) == 3, "sim: the tray pool stays whole after recycling")
+	# Stop the order flow and clear the board, then everyone should walk home.
+	service.orders.arrive_on_turn_in = false
+	for order in service.orders.active_orders():
+		service.board.cancel_for_order(order)
+	service.run_ticks(200)
+	var all_home := true
+	for worker in service.workers:
+		if worker.cell != worker.spawn_cell:
+			all_home = false
+			print("[sim]   not home: cell=%s home=%s state=%s job=%s" % [worker.cell, worker.spawn_cell,
+				worker.state_name(), worker.job != null])
+	print("[sim] workers home: ", all_home, " (", service.status_text(), ")")
+	_expect(all_home, "sim: idle workers return to their posts")
 	for line in service.events.slice(maxi(0, service.events.size() - 10)):
 		print("    ", line)
 
@@ -253,8 +286,8 @@ func _tray_count(service: Service) -> int:
 	return total
 
 
-## Dumps why the executor has nothing to do: pending jobs, their blockers and
-## where every item is sitting.
+## Dumps why nothing is happening: pending jobs, their blockers and where every
+## item and worker is sitting.
 func _stuck_report(service: Service) -> void:
 	print("[sim] stuck report — items:")
 	for item in service.items.items:
@@ -271,7 +304,7 @@ func _stuck_report(service: Service) -> void:
 			continue
 		var blocker := ""
 		if job.kind == Job.Kind.PRODUCE:
-			var inputs: Variant = service.executor._gather_inputs(job)
+			var inputs: Variant = service.gather_inputs(job)
 			blocker = "inputs ready" if inputs != null else "waiting for inputs"
 			if job.station == null:
 				blocker = "no station"
@@ -284,6 +317,10 @@ func _stuck_report(service: Service) -> void:
 	for order in service.orders.orders:
 		if order.is_active():
 			print("    #%d %s state=%d" % [order.id, order.dish_name, order.state])
+	print("[sim] stuck report — workers:")
+	for worker in service.workers:
+		print("    %s cell=%s state=%s job=%s" % [worker.name, worker.cell, worker.state_name(),
+			worker.job.describe() if worker.job != null else "-"])
 
 
 func _log_has(service: Service, text: String) -> bool:
@@ -307,14 +344,14 @@ func _item_showcase(scene: Node) -> void:
 	var cell := Vector2i(2, 6)
 	for id in ItemCatalog.all().keys():
 		var def := ItemCatalog.find(id)
-		var item := service.items.spawn(def, cell, 1, {}, 0.05)
+		var item := service.items.spawn(def, cell, {}, 0.05)
 		var aabb := MeshBounds.combined_aabb(item)
 		print("[showcase] %-26s cell=%s size=(%.2f, %.2f, %.2f)" % [def.id, cell, aabb.size.x, aabb.size.y, aabb.size.z])
 		cell.x += 1
 	# And one item on each kind of surface, to check they sit on top.
 	for cell_check in [Vector2i(3, 1), Vector2i(5, 1), Vector2i(6, 1), Vector2i(2, 3)]:
 		var h := kitchen.surface_height(cell_check)
-		service.items.spawn(ItemCatalog.find(&"burger"), cell_check, 1, {}, h)
+		service.items.spawn(ItemCatalog.find(&"burger"), cell_check, {}, h)
 		print("[showcase] burger on %s sits at y=%.2f" % [cell_check, h])
 
 
@@ -472,11 +509,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(station.output_cells.size() == 1 and station.output_cells[0] == Vector2i(5, 3),
 			"rotated assembly output zone")
 		kitchen.remove_furniture_at(Vector2i(5, 5))
-	# the planner explains what is missing
+	# the planner explains what is missing (pretend the kitchen is empty)
 	var service := scene.get_node_or_null("Service") as Service
 	if service != null:
 		service.planner.items = service.items
-		service.planner.stations = service.stations
+		service.planner.stations = []  # nothing built: planning must refuse
 		service.planner.board = service.board
 		service.planner.warnings.clear()
 		var probe := Order.new()
@@ -485,10 +522,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		probe.dish_name = "Burger"
 		var planned := service.planner.plan_order(probe, service.tick)
 		_expect(not planned, "the planner refuses an order it cannot make")
-		_expect(_contains(service.planner.warnings, "assembly"),
-			"the planner explains the missing station")
+		_expect(_contains(service.planner.warnings, "delivery") or _contains(service.planner.warnings, "assembly"),
+			"the planner explains what is missing")
+		service.planner.stations = service.stations
 		# --- presentation: motion is time-based, not frame- or tick-based ---
-		var item_a := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 6), 1, {}, 0.05)
+		var item_a := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 6), {}, 0.05)
 		var target_a := WorldItem.cell_position(Vector2i(12, 6), 0.05)
 		item_a.begin_move(target_a, 1.0)
 		item_a._process(0.5)
@@ -497,7 +535,7 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		item_a._process(0.5)
 		_expect(item_a.visual_position().is_equal_approx(target_a),
 			"presentation: the move lands exactly on target")
-		var item_b := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 7), 1, {}, 0.05)
+		var item_b := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 7), {}, 0.05)
 		var target_b := WorldItem.cell_position(Vector2i(12, 7), 0.05)
 		item_b.begin_move(target_b, 1.0)
 		for i in 20:
@@ -506,6 +544,81 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			"presentation: frame count does not change the result")
 		service.items.remove(item_a)
 		service.items.remove(item_b)
+		# --- items occupy one slot each (no stacking) ---
+		var slot_cell := Vector2i(7, 6)
+		for i in 6:
+			service.items.spawn(ItemCatalog.find(&"cheese_slice"), slot_cell, {}, 0.05)
+		_expect(service.items.items_at(slot_cell).size() == 6, "six cheese slices are six separate items")
+		var min_slot := 999.0
+		for i in 6:
+			for j in range(i + 1, 6):
+				min_slot = minf(min_slot, ItemManager.slot_offset(i).distance_to(ItemManager.slot_offset(j)))
+		_expect(min_slot > 0.2, "slots: items on one cell never share a spot (min %.2f m)" % min_slot)
+		for item in service.items.items_at(slot_cell):
+			service.items.remove(item)
+		# --- pathfinding follows the kitchen rules ---
+		_expect(not Pathfinder.find_path(kitchen, Vector2i(2, 2), Vector2i(4, 2)).is_empty(),
+			"pathfinder: straight line across the main room")
+		var detour := Pathfinder.find_path(kitchen, Vector2i(2, 2), Vector2i(12, 9))
+		_expect(not detour.is_empty(), "pathfinder: reaches the front area")
+		_expect(detour.size() > absi(12 - 2) + absi(9 - 2), "pathfinder: takes the detour around the notch (%d cells)" % detour.size())
+		_expect(Pathfinder.find_path(kitchen, Vector2i(2, 2), Vector2i(6, 9)).is_empty(),
+			"pathfinder: no path into the void")
+		_expect(Pathfinder.find_path(kitchen, Vector2i(2, 2), Vector2i(0, 0)).is_empty(),
+			"pathfinder: no path outside the map")
+		_expect(service.workers.size() == _post_count(kitchen), "one worker per placed post (%d)" % _post_count(kitchen))
+		# --- assignment picks the cheapest coupling ---
+		var wa := Worker.new()
+		wa.cell = Vector2i(0, 0)
+		var wb := Worker.new()
+		wb.cell = Vector2i(10, 0)
+		var ja := Job.new()
+		ja.location = Vector2i(1, 0)
+		ja.created_at = 0
+		var jb := Job.new()
+		jb.location = Vector2i(9, 0)
+		jb.created_at = 5
+		var cost := func(w: Worker, j: Job) -> float:
+			return float(absi(w.cell.x - j.location.x) + absi(w.cell.y - j.location.y))
+		var pairs := JobAssignment.match([wa, wb], [ja, jb], cost)
+		_expect(pairs.size() == 2, "assignment: both jobs get a worker")
+		_expect(pairs[0]["worker"] == wa and pairs[0]["job"] == ja,
+			"assignment: the older job takes the nearest worker")
+		_expect(pairs[1]["worker"] == wb and pairs[1]["job"] == jb,
+			"assignment: the other worker takes the other job")
+		# the case that trips up per-worker greedy claiming: the older job is far
+		# from the first worker but close to the second
+		var wc := Worker.new()
+		wc.cell = Vector2i(5, 0)
+		var jc := Job.new()
+		jc.location = Vector2i(10, 0)
+		jc.created_at = 0
+		var jd := Job.new()
+		jd.location = Vector2i(0, 0)
+		jd.created_at = 9
+		var pairs2 := JobAssignment.match([wa, wc], [jc, jd], cost)
+		_expect(pairs2.size() == 2 and pairs2[0]["worker"] == wc and pairs2[0]["job"] == jc,
+			"assignment: the nearer worker is preferred even if listed later")
+		_expect(pairs2[1]["worker"] == wa and pairs2[1]["job"] == jd,
+			"assignment: the first worker takes what is left nearby")
+		wa.free()
+		wb.free()
+		wc.free()
+		# --- placing a post spawns a worker; removing it despawns ---
+		var post_cell := Vector2i(7, 2)
+		var before := service.workers.size()
+		var placed := kitchen.place_furniture(FurnitureCatalog.find(&"worker_post"), post_cell, 0,
+			{"*": Color(0.9, 0.4, 0.4)})
+		_expect(placed != null, "worker post placed")
+		_expect(service.workers.size() == before + 1, "placing a post spawns a worker")
+		var new_worker := service._worker_at(post_cell)
+		_expect(new_worker != null and new_worker.spawn_cell == post_cell, "the worker's home is the post")
+		_expect(new_worker != null and new_worker.tint_color.is_equal_approx(Color(0.9, 0.4, 0.4)),
+			"the worker inherits the post's colour")
+		kitchen.remove_furniture_at(post_cell)
+		_expect(service.workers.size() == before, "removing the post despawns the worker")
+		_expect(Pathfinder.adjacent_walkable(kitchen, Vector2i(2, 3), Vector2i(2, 5)) != Vector2i(-2147483647, -2147483647),
+			"the intake point has somewhere to stand")
 
 
 func _contains(lines: Array, text: String) -> bool:
@@ -513,6 +626,14 @@ func _contains(lines: Array, text: String) -> bool:
 		if String(line).contains(text):
 			return true
 	return false
+
+
+func _post_count(kitchen: Kitchen) -> int:
+	var count := 0
+	for inst in kitchen.get_furniture_instances():
+		if inst.def.has_tag(&"worker"):
+			count += 1
+	return count
 
 
 func _expect(condition: bool, label: String) -> void:

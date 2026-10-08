@@ -1,7 +1,8 @@
 class_name WorldItem
 extends Node3D
-## One item stack lying in the kitchen: an ingredient amount with an optional
-## payload (order stamp), a logical cell and an optional job reservation.
+## One item in the kitchen: a single unit (never a stack) with an optional
+## payload (order stamp), a logical cell, a slot inside that cell and an
+## optional job reservation.
 ##
 ## The simulation only knows about [member cell]; everything visual (position,
 ## interpolation between states, the arrival pop) runs on real time in
@@ -12,7 +13,6 @@ const POP_HEIGHT := 0.12
 const SETTLE_TIME := 0.15
 
 var def: ItemDef
-var amount := 1
 var payload: Dictionary = {}
 var cell := Vector2i.ZERO
 var reserved_by: Variant = null  # Job
@@ -27,9 +27,8 @@ var _pop := 0.0
 var _meshes: Array[Node3D] = []
 
 
-func setup(item_def: ItemDef, item_amount: int, item_payload: Dictionary, item_cell: Vector2i, height: float, tint := Color.WHITE) -> void:
+func setup(item_def: ItemDef, item_payload: Dictionary, item_cell: Vector2i, height: float, tint := Color.WHITE) -> void:
 	def = item_def
-	amount = item_amount
 	payload = item_payload.duplicate()
 	cell = item_cell
 	base_height = height
@@ -147,6 +146,23 @@ func _apply_tint(node: Node, tint: Color) -> void:
 		_apply_tint(child, tint)
 
 
+## Follows another node (a worker's hand) while being carried.
+func attach_to(holder: Node3D, local_offset: Vector3) -> void:
+	set_process(false)
+	_move_duration = 0.0
+	_pop = 0.0
+	reparent(holder, false)
+	position = local_offset
+	rotation_degrees = Vector3.ZERO
+
+
+## Returns to the world layer after a carry.
+func detach_to(parent_node: Node3D, world_pos: Vector3) -> void:
+	reparent(parent_node, false)
+	set_process(true)
+	snap_to(world_pos)
+
+
 func matches(item_id: StringName, order_id: int, needs_order: bool) -> bool:
 	if def.id != item_id:
 		return false
@@ -159,4 +175,4 @@ func describe() -> String:
 	var extra := ""
 	if payload.has("order"):
 		extra = " (order %d)" % int(payload["order"])
-	return "%dx %s%s" % [amount, def.display_name, extra]
+	return "%s%s" % [def.display_name, extra]

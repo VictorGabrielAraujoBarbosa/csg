@@ -6,11 +6,11 @@ the customers stop waiting and come for you.
 
 Built with **Godot 4.7** (GL Compatibility renderer) using the Kenney CC0 3D kits.
 
-> **Status: Prototype 2 — the order loop runs on ticks.** Grid, map authoring, furniture,
-> colouring and the look & feel are in, and so is the full order pipeline: recipes, recursive
-> job planning, a finite tray pool that cycles through the kitchen, money and warnings. The
-> simulation is deterministic (fixed ticks) and the presentation interpolates in real time.
-> Jobs are executed by a placeholder executor until real chibi workers land.
+> **Status: Prototype 3 — the chibis run the kitchen.** Grid, map authoring, furniture,
+> colouring, look & feel and the full order pipeline are in: recipes, recursive job planning,
+> a finite tray pool that cycles through the kitchen, money and warnings. The simulation is
+> deterministic (fixed ticks), presentation interpolates in real time, and three toilet-shaped
+> chibi workers walk the grid, operate stations and carry items (placeholder mesh).
 > See [Roadmap](#roadmap) and [Not implemented yet](#not-implemented-yet).
 
 ---
@@ -68,7 +68,8 @@ scripts/recipes/                  recipe definitions + catalog (the burger line 
 scripts/stations/station.gd       a station instance: cells, zones, capability tags
 scripts/jobs/                     Job, JobBoard (age/distance priority), Planner (recursive)
 scripts/orders/                   Order + OrderManager (queue, money, rules)
-scripts/service/service.gd        runs it all: items, stations, jobs, orders, executor
+scripts/service/service.gd        runs it all: items, stations, jobs, orders, workers
+scripts/workers/                  worker.gd (toilet chibi, walk/work/carry) + pathfinder.gd (A*)
 scripts/ui/hud.gd                 money / orders / warnings HUD
 scripts/build/place_controller.gd       furniture placement
 scripts/build/map_paint_controller.gd   live map editor + colour tools
@@ -96,8 +97,8 @@ Everything that matters is an exported node property — open `scenes/main.tscn`
 - **Sun** / **Fill** — the two shadowless directional lights (cloudy-day look).
 - **Service** — job priority (`age_weight`, `distance_weight`), tick rate
   (`ticks_per_second`), `sim_speed`, `max_ticks_per_frame`, `starting_trays`.
-- **Service/Executor (PLACEHOLDER)** — `parallel_jobs` (stands in for how many workers are
-  on shift) and `carry_ticks`. Temporary: delete with `placeholder_executor.gd`.
+- **Service/Workers** — `worker_scale`, `worker_tint` (default for posts without paint) and
+  `walk_ticks_per_cell`. Job priority is `age_weight`; `assignment_cost` uses `distance_weight`.
 - **Service/Orders** (`OrderManager`) — `reward_per_order`, `max_pending`, `time_limit_ticks`,
   `start_orders`, `arrive_on_turn_in`, target `dish_id`.
 
@@ -165,19 +166,26 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
   be sourced, the planner says so on screen instead of silently stalling.
 - Base ingredients are pulled from any storage station (`storage` tag: fridge, shelf, drawer
   counter) and are **infinite** for now.
-- **Placeholder executor**: until chibi workers exist, `PlaceholderExecutor` claims the same
-  ready jobs and finishes them after the recipe's tick duration, up to `parallel_jobs` at a
-  time. Nothing walks — it is a stand-in, marked as such in code, README and AGENTS.
+- **Workers** (currently toilet-shaped) are **placed as furniture**: a 1×1 walkable mat
+  (`worker_post`) spawns a chibi whose home is that cell, and they walk back there when idle.
+  The mat's painted colour tints its worker.
+- **Job assignment** is central: once per tick the Service takes the ready jobs in priority
+  order (oldest first) and gives each one the **cheapest free worker** (distance now, worker
+  types later) — so the best worker/task coupling wins instead of whoever asked first.
+- **Every item is a single entity in its own slot.** Yields spawn that many items (six cheese
+  slices are six items, two salads are two) and a cell arranges items in a growing lattice, so
+  nothing ever overlaps or hides behind something else. `ItemManager.MAX_SLOTS_PER_CELL` is the
+  hook for limiting capacity later.
 
 ## Simulation & presentation
 
-The simulation is **tick-based and deterministic**: everything timed (recipes, carries, order
+The simulation is **tick-based and deterministic**: everything timed (recipes, walking, order
 limits) counts ticks, `Service.tick_once()` advances exactly one tick, and headless tests run
 thousands of ticks instantly via `run_ticks()` / `run_until_idle()` (`sim_speed = 0`).
 
-Rendering is **decoupled from ticks**: item views interpolate between their old and new
-position in *real time* (`WorldItem`), so a lower or higher tick rate never makes movement
-choppier — and the arrival pop, stack settling and (later) worker walk/work bobs are pure
+Rendering is **decoupled from ticks**: item and worker views interpolate between their old and
+new position in *real time* (`WorldItem`, `Worker`), so a lower or higher tick rate never makes
+movement choppier — the arrival pop, slot settling and the worker walk/work bobs are pure
 presentation. Animations must stay in real time; never tie smoothness to the tick rate.
 
 ### Adding a recipe
@@ -195,7 +203,9 @@ presentation. Animations must stay in real time; never tie smoothness to the tic
 - Async stations (oven, deep pot) that work without a worker, progress bars, and burning food
   left too long.
 - Finite food stock and purchasing (base ingredients are infinite), buying more trays.
-- Real workers: the current executor completes jobs instantly.
+- Worker limitations: workers can share a cell (no collision between them) and carry exactly
+  one item at a time. Worker types/skills are not implemented — `Service.assignment_cost()` is
+  the seam where they will change who takes which job.
 - The "customers break in and eat you" horror event, day cycle, synergies, audio.
 
 ## Development tools
@@ -215,7 +225,8 @@ actually differ), runs the order pipeline headlessly (`--sim`: a full burger ord
 tray-recycling loop through the sink, deterministically in ticks) and saves a screenshot to
 `/tmp/opencode/kitchen.png`. Extra flags: `--pitch=`, `--yaw=`, `--dist=`, `--focus=x,z`,
 `--item-showcase` (spawns one of every item to check sizes/heights), `--sim` (tick-deterministic
-order simulation), `--pixeltest` (rendered-pixel checks).
+order simulation), `--sim-ticks=N` (run exactly N ticks, to catch workers mid-action) and
+`--pixeltest` (rendered-pixel checks).
 
 For diagnosing a *real* game run, start the game with `-- --dump-events`: the service prints its
 whole state (events, orders, jobs, items) when it shuts down.
@@ -235,9 +246,9 @@ colouring and the checkerboard are runtime material tints.
 ## Roadmap
 
 1. ~~Grid, authored maps, furniture placement, live map editor, colouring~~ ✅
-2. ~~Orders, recipes, recursive job planning, the tray cycle, instant executor~~ ✅
-3. Chibi workers: character models, grid pathfinding, work loop (replaces the placeholder
-   executor)
+2. ~~Orders, recipes, recursive job planning, the tray cycle, tick simulation~~ ✅
+3. ~~Chibi workers: grid pathfinding, work loop, carrying, placed as furniture with spawn
+   posts~~ ✅ (mesh is still a toilet)
 4. Build phase & economy: money UI, buy/sell, day cycle, end-of-day summary
 5. Stations & orders polish: async stations (oven/pot) with progress and burning, order queue
    rules (timed/chance arrivals, losing on overflow or timeout)

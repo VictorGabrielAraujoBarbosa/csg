@@ -41,7 +41,7 @@ static func _build() -> void:
 	_add("bread", "Bread", "bread.glb", true)
 	_add("patty_raw", "Raw Patty", "meat-patty.glb", true)
 	_add("lettuce", "Lettuce", "cabbage.glb", true)
-	_add("tomato", "Tomato", "tomato.glb", true)
+	_add("tomato", "Tomato", "tomato.glb", true, &"", {"scale": 1.2})
 	_add("cheese", "Cheese", "cheese.glb", true)
 	# Made ingredients.
 	_add("patty_cooked", "Cooked Patty", "meat-cooked.glb", false)

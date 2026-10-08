@@ -68,6 +68,12 @@ func origin() -> Vector2i:
 	return cells[0] if not cells.is_empty() else Vector2i.ZERO
 
 
+## The cell a worker stands next to / operates from: a declared "work" zone for
+## multi-cell stations, otherwise the station's own cell.
+func work_target() -> Vector2i:
+	return work_cells[0] if not work_cells.is_empty() else origin()
+
+
 func input_cell() -> Vector2i:
 	return input_cells[0] if not input_cells.is_empty() else origin()
 

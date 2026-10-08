@@ -22,14 +22,19 @@ keep, and how to verify your work.
   `FurnitureCatalog` (the list) → `FurnitureInstance` (a placed or ghost piece with per-material
   tints).
 - **Service** (`scripts/service/service.gd`) — the simulation: owns `ItemManager`,
-  `OrderManager`, the `JobBoard`, the `Planner` and the executor. It listens to kitchen layout
+  `OrderManager`, the `JobBoard`, the `Planner` and the workers. It listens to kitchen layout
   changes to rebuild stations, seeds the tray pool on the intake, and advances the world in
   fixed **ticks** (`tick_once()`).
-- **PlaceholderExecutor** (`scripts/service/placeholder_executor.gd`) — ⚠ a stand-in for real
-  chibi workers, loudly marked. It claims ready jobs and finishes them after the recipe's tick
-  duration, up to `parallel_jobs` at once. Delete it (and `Service.executor`) when workers land.
-- **Items** — `ItemDef`/`ItemCatalog` (food + trays) and `WorldItem` stacks that live on cells.
-  Trays are items with a payload: `{order, recipe, dish}`.
+- **Workers** (`scripts/workers/worker.gd` + `pathfinder.gd`) — toilet-shaped chibis that walk
+  with A* on the same grid rules as placement, operate stations for the recipe's ticks and
+  carry one item in front. **Workers are placed as furniture**: a `worker_post` mat spawns one
+  worker whose home is that cell; idle workers walk back there. The mat's tint colours its
+  worker. The mesh is a placeholder; movement and walk/work bobs are real-time interpolation.
+- **JobAssignment** (`scripts/jobs/job_assignment.gd`) — the pure matcher: jobs in priority
+  order, each taking the cheapest free worker (see `Service.assignment_cost`).
+- **Items** — `ItemDef`/`ItemCatalog` (food + trays) and `WorldItem`: single-unit items that
+  live on cells, each in its own slot. Trays are items with a payload
+  `{order, recipe, dish}`.
 - **Recipes** — `RecipeDef`/`RecipeCatalog`: inputs → output(s) at a station tag, with optional
   `effect` (`complete_order`) and `stamp` (`order`, `order_dish`) for payloads. Base ingredients
   get a synthetic `take_<item>` source recipe.
@@ -70,21 +75,29 @@ keep, and how to verify your work.
    returns `tray_dirty`, the sink washes it back. Add new tray states as items + recipes, not
    as special cases in code.
 9. **Planning stays recursive and lazy.** `Planner._plan_item` must always: 1) reserve a free
-   matching item, 2) else plan a producer (source or craft), 3) else warn. Amounts must be
-   satisfied across jobs/stacks (2 tomatoes = two source jobs), recipes are gated by their
+   matching item, 2) else plan a producer (source or craft), 3) else warn. Amounts are satisfied
+   with one item each (2 tomatoes = two source jobs), recipes are gated by their
    `station_tag`, and the cycle guard exists to break the tray loop with a real warning.
-10. **The executor is a seam for workers.** All work goes through
-    `PlaceholderExecutor.tick()` → `_finish_produce`/`_finish_transfer`, which only need the job
-    to be *ready* (inputs present at the station, station not busy). Real chibi workers replace
-    the executor by claiming the same ready jobs and walking there — do not bake teleporting
-    into game logic, and keep `PlaceholderExecutor` loudly temporary.
+10. **Jobs are the only interface to work.** All work goes through
+    `Service.claim/assign` → `finish_produce`/`finish_transfer`, which only need the job to be
+    *ready* (inputs present at the station, station not busy). Work is handed out centrally:
+    `Service._assign_jobs()` runs `JobAssignment.match()` with `assignment_cost()` — priority
+    (age) decides who is served first, the cost function decides which worker (distance now,
+    worker types later). Nothing teleports and nothing claims jobs on its own; new worker types
+    or machines must plug into that same seam.
 11. **Ticks are the simulation clock; real time is the animation clock.** Everything timed in
-    the sim counts ticks (`RecipeDef.duration_ticks`, `carry_ticks`, order limits) so runs are
-    deterministic and testable via `run_ticks()`. Visuals (movement, pops, settles, worker
-    bobs) interpolate in `_process(delta)` over real seconds (`WorldItem` is the reference
-    implementation). Never tie animation smoothness to the tick rate, and never read visual
-    positions back into the simulation.
-12. **Docs stay honest.** When you finish something from the "Not implemented yet" list in
+    the sim counts ticks (`RecipeDef.duration_ticks`, `walk_ticks_per_cell`, order limits) so
+    runs are deterministic and testable via `run_ticks()`. Visuals (movement, pops, settles,
+    worker bobs) interpolate in `_process(delta)` over real seconds (`WorldItem` and `Worker`
+    are the reference implementations). Never tie animation smoothness to the tick rate, and
+    never read visual positions back into the simulation.
+12. **Every item is one entity in one slot.** No stacks anywhere: yields spawn that many items,
+    `ItemManager` places them in a growing lattice of slots per cell, and
+    `MAX_SLOTS_PER_CELL` is the future capacity hook. Recipes consume items individually.
+13. **Workers exist only for placed posts.** `Service._sync_workers()` creates one worker per
+    `worker_post` furniture instance and despawns them when the post goes away. Never spawn
+    workers another way; the post's cell is the worker's canonical home.
+14. **Docs stay honest.** When you finish something from the "Not implemented yet" list in
     README.md (or add a new deferral), move the line so the list keeps matching reality.
 
 ## Verifying changes
@@ -110,7 +123,8 @@ overexposed to pure white — the pixel test exists because of that).
 
 Useful capture flags: `--pitch=`, `--yaw=`, `--dist=`, `--focus=x,z` for framing,
 `--ambient=`, `--ssao-intensity=`, `--ssao-radius=`, `--sun=`, `--exposure=` for look tests,
-`--item-showcase` for item size/height checks and `--sim` for the tick simulation. To debug a
+`--item-showcase` for item size/height checks, `--sim` for the tick simulation and
+`--sim-ticks=N` to run an exact number of ticks (catch workers mid-action). To debug a
 real game run (not the capture harness), run the game with `-- --dump-events`: the service
 prints its events, orders, jobs and items at shutdown.
 
@@ -125,10 +139,17 @@ prints its events, orders, jobs and items at shutdown.
 - This project treats some GDScript warnings as errors. In particular `:=` on a Variant
   ("type is being inferred from a Variant value") fails the build — annotate the type
   (`var inputs: Variant = ...`) or cast explicitly.
-- Items merge into stacks per cell (same def + payload + unreserved), and station inputs are
-  gathered across stacks, so "2 tomatoes" works whether they arrived as one stack or two.
+- Items never stack: one item = one slot (see `ItemManager.slot_offset`). If you need to
+  "combine" items, model it as a recipe with multiple inputs, not by merging entities.
 - `JobBoard.cleanup()` must keep **ACTIVE** jobs as well as PENDING ones — dropping active jobs
   strands their item reservations and station locks forever (a bug that looked like a deadlock).
+- The demo map ships **furnished** (stations + points), so tests must not assume an empty
+  kitchen: e.g. the planner probe clears `planner.stations` to test the refusal path.
+- Workers do not collide with each other (two may share a cell) and carry exactly one item.
+- Non-solid furniture (`FurnitureDef.solid = false`, e.g. worker posts) is walkable and counts
+  as floor for item heights, but still occupies its cell for placement.
+- Worker "go home" paths target the post cell itself (mats are walkable), unlike job paths
+  which target a cell *next to* the station/item.
 - Godot reports at-exit resource/leaked-instance warnings in headless runs even when the game
   shuts down cleanly; treat *script errors and runtime errors* as failures, and these cosmetic
   reports as noise (a couple come from engine internals).

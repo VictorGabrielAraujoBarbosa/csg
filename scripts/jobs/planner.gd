@@ -78,7 +78,7 @@ func _plan_item(item_id: StringName, amount: int, target_cell: Vector2i, order: 
 		var free := items.find_free(item_id, order_id, needs_order, target_cell)
 		if free != null:
 			var transfer := _make_transfer(free, target_cell, order, parent, now)
-			remaining -= mini(free.amount, remaining)
+			remaining -= 1
 			if first_job == null:
 				first_job = transfer
 			continue

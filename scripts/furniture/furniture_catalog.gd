@@ -50,6 +50,7 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
 	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
 	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"]))
+	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 0, ["worker"]))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
 	return out
 
@@ -74,4 +75,9 @@ static func _make(id: String, name: String, file: String, footprint: Vector2i, c
 			{"offset": Vector2i(1, 0), "role": "work"},
 			{"offset": Vector2i(2, 0), "role": "output"},
 		]
+	if id == "worker_post":
+		# A walkable 1x1 mat: placing it spawns a chibi who idles here.
+		def.auto_footprint = false
+		def.footprint = Vector2i.ONE
+		def.solid = false
 	return def
