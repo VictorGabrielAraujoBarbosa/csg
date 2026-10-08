@@ -8,12 +8,13 @@ extends Node3D
 
 signal tool_changed(text: String)
 
-enum Tool { FLOOR_TILE, FLOOR_PLATING, WALL, WINDOW, DOORWAY, LOW, ERASE, TINT, WALL_TINT, PRESET }
+enum Tool { FLOOR_TILE, FLOOR_PLATING, WALL, WINDOW, DOORWAY, LOW, ERASE, TINT, WALL_TINT, PRESET, PICKUP, DELIVERY }
 
-const TOOL_COUNT := 10
+const TOOL_COUNT := 12
 const TOOL_LABELS := [
 	"Floor: tile", "Floor: plating", "Wall", "Window", "Doorway",
 	"Low wall", "Erase", "Paint material", "Paint wall", "Tag preset",
+	"Order intake point", "Order delivery point",
 ]
 
 const WALL_PIECES := {
@@ -170,6 +171,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				tool_changed.emit(tool_label())
 			KEY_V:
 				_cycle_tint_target()
+			KEY_Y:
+				set_tool(Tool.PICKUP)
+			KEY_U:
+				set_tool(Tool.DELIVERY)
 			KEY_P:
 				if key.shift_pressed:
 					_apply_presets_to_all()
@@ -351,17 +356,31 @@ func _apply_tool(_from_drag: bool) -> void:
 				var color := preset_color(inst2.def)
 				if not color.is_equal_approx(Color.WHITE):
 					kitchen.tint_furniture(inst2, color, "*")
+		Tool.PICKUP:
+			if _cell == _last_cell:
+				return
+			_last_cell = _cell
+			kitchen.paint_point(_cell, KitchenLayout.PointKind.PICKUP)
+		Tool.DELIVERY:
+			if _cell == _last_cell:
+				return
+			_last_cell = _cell
+			kitchen.paint_point(_cell, KitchenLayout.PointKind.DELIVERY)
 
 
 func _erase_at_hover() -> void:
 	if not _has_hover:
 		return
-	# Contextual: a wall on the hovered edge first, then furniture, then floor.
+	# Contextual: a wall on the hovered edge first, then furniture, then a
+	# structural point, then the floor itself.
 	if kitchen.data.get_wall_key(_edge) != KitchenLayout.Wall.OPEN:
 		kitchen.paint_wall(Vector2i(_edge.x, _edge.y), _edge.z, KitchenLayout.Wall.OPEN)
 		return
 	if kitchen.furniture_at(_cell) != null:
 		kitchen.remove_furniture_at(_cell)
+		return
+	if kitchen.is_point(_cell):
+		kitchen.clear_point(_cell)
 		return
 	kitchen.paint_floor(_cell, KitchenLayout.Floor.VOID)
 

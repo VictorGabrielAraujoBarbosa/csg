@@ -6,6 +6,8 @@ extends Node3D
 var def: FurnitureDef
 var anchor: Vector2i = Vector2i.ZERO
 var rot_steps: int = 0
+## Height of the piece's top surface (world units) — where items sit on it.
+var surface_y := 0.5
 ## Per-material colours: material name -> Color, with "*" meaning the whole
 ## piece. Empty = original look (see [method tint_for]).
 var tints: Dictionary = {}
@@ -28,14 +30,16 @@ func setup(p_def: FurnitureDef, p_anchor: Vector2i, p_steps: int) -> void:
 	add_child(_model)
 
 	# Center the model on its footprint, so rotations happen around the middle.
-	var aabb := combined_aabb(_model)
+	var aabb := MeshBounds.combined_aabb(_model)
 	if aabb.size != Vector3.ZERO:
 		var center := aabb.get_center()
 		_model.position -= Vector3(center.x, 0.0, center.z)
+		# Height of the piece's top surface where items can sit.
+		surface_y = aabb.end.y * def.scale_mult * def.scale_axis.y
 	_model.position += def.extra_offset
 
 	_collect_meshes()
-	scale = Vector3.ONE * def.scale_mult
+	scale = Vector3.ONE * def.scale_mult * def.scale_axis
 	rotation_degrees = Vector3(0.0, rot_steps * 90.0 + def.yaw_offset_deg, 0.0)
 
 
@@ -96,25 +100,3 @@ func _collect_meshes() -> void:
 			_meshes.append(node)
 		for child in node.get_children():
 			stack.append(child)
-
-
-## Combined local-space AABB of every mesh below [param root].
-static func combined_aabb(root: Node3D) -> AABB:
-	var result := AABB()
-	var found := false
-	var stack: Array = [[root, root.transform]]
-	while not stack.is_empty():
-		var item: Array = stack.pop_back()
-		var node: Node = item[0]
-		var xf: Transform3D = item[1]
-		if node is MeshInstance3D:
-			var a: AABB = (node as MeshInstance3D).get_aabb()
-			a = xf * a
-			result = a if not found else result.merge(a)
-			found = true
-		for child in node.get_children():
-			var child_xf := xf
-			if child is Node3D:
-				child_xf = xf * (child as Node3D).transform
-			stack.append([child, child_xf])
-	return result

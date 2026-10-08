@@ -6,6 +6,8 @@
 [ext_resource type="Script" uid="uid://cp2kek55850v5" path="res://scripts/build/place_controller.gd" id="4_place"]
 [ext_resource type="Script" uid="uid://svcmrvqcvcmc" path="res://scripts/render/look_config.gd" id="5_look"]
 [ext_resource type="Script" uid="uid://bylw3x4b6qrxj" path="res://scripts/build/map_paint_controller.gd" id="6_paint"]
+[ext_resource type="Script" path="res://scripts/service/service.gd" id="7_service"]
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="8_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_tefeu"]
 sky_top_color = Color(0.58, 0.62, 0.68, 1)
@@ -84,7 +86,13 @@ script = ExtResource("6_paint")
 kitchen = NodePath("../Kitchen")
 camera = NodePath("../CameraRig/Camera3D")
 
+[node name="Service" type="Node3D" parent="."]
+script = ExtResource("7_service")
+kitchen = NodePath("../Kitchen")
+
 [node name="UI" type="CanvasLayer" parent="." unique_id=1932378937]
+script = ExtResource("8_hud")
+service_path = NodePath("../Service")
 
 [node name="Hint" type="Label" parent="UI" unique_id=1541157040]
 offset_left = 12.0
@@ -96,3 +104,26 @@ theme_override_colors/font_outline_color = Color(0, 0, 0, 0.75)
 theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 15
 text = "loading..."
+
+[node name="Orders" type="Label" parent="UI" unique_id=8801234561]
+offset_left = 1000.0
+offset_top = 10.0
+offset_right = 1272.0
+offset_bottom = 220.0
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.75)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 15
+text = ""
+
+[node name="Warnings" type="Label" parent="UI" unique_id=8801234562]
+offset_left = 12.0
+offset_top = 660.0
+offset_right = 1000.0
+offset_bottom = 706.0
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 16
+text = ""

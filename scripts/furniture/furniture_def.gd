@@ -14,6 +14,12 @@ extends Resource
 @export var auto_footprint := true
 ## Kenney's furniture kit is modelled at 1 unit = 0.5 m, so scale by 2.
 @export var scale_mult: float = 2.0
+## Optional per-axis extra scale (used to stretch the 3x1 assembly table).
+@export var scale_axis := Vector3.ONE
+## Station zoning for multi-cell pieces: each entry is
+## {offset: Vector2i, role: "input" | "work" | "output"}. Rotates with the
+## piece. Single-cell stations default to "the cell is input and output".
+@export var zones: Array = []
 ## Extra yaw applied to the model (the blueprints of the kit face +Z by default).
 @export var yaw_offset_deg: float = 0.0
 @export var extra_offset: Vector3 = Vector3.ZERO
@@ -69,7 +75,7 @@ func _measure() -> Vector2i:
 	var node := scene.instantiate() as Node3D
 	if node == null:
 		return footprint
-	var aabb := FurnitureInstance.combined_aabb(node)
+	var aabb := MeshBounds.combined_aabb(node)
 	node.free()
 	if aabb.size == Vector3.ZERO:
 		return footprint

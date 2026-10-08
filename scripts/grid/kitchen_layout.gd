@@ -12,6 +12,7 @@ extends Resource
 
 enum Wall { OPEN = 0, SOLID, WINDOW, DOORWAY, LOW }
 enum Floor { VOID = 0, TILE, PLATING }
+enum PointKind { PICKUP = 0, DELIVERY = 1 }
 
 const DIR_X := 0 ## Edge between (x, z) and (x + 1, z); its line runs along Z.
 const DIR_Z := 1 ## Edge between (x, z) and (x, z + 1); its line runs along X.
@@ -42,6 +43,8 @@ const CHAR_WALL := {
 @export var floor_tints: Dictionary = {}
 ## Optional per-edge wall tints: Vector3i(x, z, dir) -> Color.
 @export var wall_tints: Dictionary = {}
+## Structural points: Vector2i cell -> [enum PointKind] (order intake / delivery).
+@export var points: Dictionary = {}
 ## Placed furniture: each entry is {id: StringName, cell: Vector2i, steps: int,
 ## tints: Dictionary}. "tints" maps material name -> Color, with "*" meaning the
 ## whole piece. Part of the layout so a map export includes everything on it.
@@ -184,6 +187,11 @@ func to_text() -> String:
 		parts.append("[wallcolors]")
 		for key: Vector3i in wall_tints:
 			parts.append("%d %d %d %s" % [key.x, key.y, key.z, wall_tints[key].to_html(false)])
+	if not points.is_empty():
+		parts.append("[points]")
+		for cell: Vector2i in points:
+			var kind: int = points[cell]
+			parts.append("%s %d %d" % ["pickup" if kind == PointKind.PICKUP else "delivery", cell.x, cell.y])
 	if not furniture.is_empty():
 		parts.append("[furniture]")
 		for entry in furniture:
@@ -225,6 +233,7 @@ static func from_text(text: String) -> KitchenLayout:
 		_parse_map(layout, map_lines)
 	_parse_colors(layout, sections.get("colors", []))
 	_parse_wallcolors(layout, sections.get("wallcolors", []))
+	_parse_points(layout, sections.get("points", []))
 	_parse_furniture(layout, sections.get("furniture", []))
 	return layout
 
@@ -267,6 +276,17 @@ static func _parse_wallcolors(layout: KitchenLayout, lines: Array) -> void:
 		if parts.size() >= 4:
 			var key := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
 			layout.wall_tints[key] = Color.from_string(parts[3], Color.WHITE)
+
+
+static func _parse_points(layout: KitchenLayout, lines: Array) -> void:
+	for line in lines:
+		var parts := String(line).strip_edges().split(" ", false)
+		if parts.size() < 3:
+			continue
+		var kind := PointKind.PICKUP
+		if parts[0].to_lower().begins_with("deliv"):
+			kind = PointKind.DELIVERY
+		layout.points[Vector2i(int(parts[1]), int(parts[2]))] = kind
 
 
 static func _parse_furniture(layout: KitchenLayout, lines: Array) -> void:

@@ -25,6 +25,7 @@ const PIECE_FILES := {
 	"column": "column-thin.glb",
 }
 const NO_EDGE := Vector3i(-2147483647, 0, 0)
+const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/tableCoffeeSquare.glb"
 
 @export_file("*.txt") var layout_file: String = "":
 	set(value):
@@ -54,6 +55,13 @@ const NO_EDGE := Vector3i(-2147483647, 0, 0)
 @export var grid_line_width := 0.035
 @export var grid_height := 0.012
 
+@export_group("Structural points")
+@export var point_scale := 2.0
+@export var pickup_color := Color(1.0, 0.82, 0.05)
+@export var delivery_color := Color(0.15, 0.9, 0.3)
+## Height items float at on top of a station / point (measured per piece).
+@export var surface_item_height := 0.5
+
 var data: KitchenLayout
 
 var _generated: Node3D
@@ -66,6 +74,8 @@ var _material_cache: Dictionary = {}
 
 # Incremental build bookkeeping.
 var _floor_nodes: Dictionary = {}    # Vector2i cell -> Node3D
+var _point_nodes: Dictionary = {}    # Vector2i cell -> Node3D
+var _point_top := 0.46               # measured top of the point table
 var _wall_entries: Array = []        # {"nodes": Array[Node3D], "vertices": Array[Vector2i]}
 var _column_nodes: Dictionary = {}   # Vector2i doubled vertex -> Node3D
 var _undo_stack: Array = []
@@ -83,6 +93,7 @@ func rebuild() -> void:
 	_generated = null
 	_grid = null
 	_floor_nodes.clear()
+	_point_nodes.clear()
 	_wall_entries.clear()
 	_column_nodes.clear()
 	if data == null:
@@ -94,6 +105,7 @@ func rebuild() -> void:
 		_build_floor()
 	if build_walls:
 		_build_walls()
+	_build_points()
 	_build_grid()
 	_build_furniture_from_data()
 	layout_rebuilt.emit()
@@ -129,9 +141,39 @@ func has_floor(cell: Vector2i) -> bool:
 	return data != null and data.has_floor(cell)
 
 
-## A cell a character can stand on: floor and no furniture.
+## A cell a character can stand on: floor, no furniture, no structural point.
 func is_walkable(cell: Vector2i) -> bool:
-	return has_floor(cell) and not _furniture_by_cell.has(cell)
+	return has_floor(cell) and not _furniture_by_cell.has(cell) and not is_point(cell)
+
+
+func is_point(cell: Vector2i) -> bool:
+	return data != null and data.points.has(cell)
+
+
+func get_points() -> Dictionary:
+	return data.points if data != null else {}
+
+
+## Cells carrying a structural point of the given kind.
+func point_cells(kind: int) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if data == null:
+		return out
+	for cell: Vector2i in data.points:
+		if data.points[cell] == kind:
+			out.append(cell)
+	return out
+
+
+## Where items sit on a cell: on top of the placed piece (measured from its
+## model) or low on the floor.
+func surface_height(cell: Vector2i) -> float:
+	if is_point(cell):
+		return _point_top
+	var inst: FurnitureInstance = _furniture_by_cell.get(cell)
+	if inst != null:
+		return inst.surface_y
+	return 0.05
 
 
 func get_world_bounds() -> Rect2:
@@ -166,7 +208,7 @@ func can_place(def: FurnitureDef, anchor: Vector2i, steps: int) -> bool:
 	for c in cells:
 		if not data.has_floor(c):
 			return false
-		if _furniture_by_cell.has(c):
+		if _furniture_by_cell.has(c) or data.points.has(c):
 			return false
 		cell_set[c] = true
 	# No wall may run through the footprint.
@@ -416,6 +458,43 @@ func _apply_wall_tint(cell: Vector2i, dir: int, color: Color) -> void:
 	_refresh_walls_around([key])
 
 
+## Painting API: structural points (order intake / delivery).
+func paint_point(cell: Vector2i, kind: int, record := true) -> bool:
+	if data == null or not data.has_floor(cell):
+		return false
+	if _furniture_by_cell.has(cell):
+		return false
+	var old: int = data.points.get(cell, -1)
+	if old == kind:
+		return false
+	data.points[cell] = kind
+	_refresh_point(cell)
+	if record:
+		push_undo({"type": "point", "cell": cell, "old": old})
+		layout_edited.emit()
+	return true
+
+
+func clear_point(cell: Vector2i, record := true) -> bool:
+	if data == null or not data.points.has(cell):
+		return false
+	var old: int = data.points[cell]
+	data.points.erase(cell)
+	_refresh_point(cell)
+	if record:
+		push_undo({"type": "point", "cell": cell, "old": old})
+		layout_edited.emit()
+	return true
+
+
+func _apply_point(cell: Vector2i, kind: int) -> void:
+	if kind < 0:
+		data.points.erase(cell)
+	else:
+		data.points[cell] = kind
+	_refresh_point(cell)
+
+
 func undo() -> bool:
 	if _undo_stack.is_empty():
 		return false
@@ -440,6 +519,8 @@ func _undo_one(entry: Dictionary) -> bool:
 				_apply_wall_tint(entry.cell, entry.dir, entry.old_tint)
 		"wall_tint":
 			_apply_wall_tint(entry.cell, entry.dir, entry.old)
+		"point":
+			_apply_point(entry.cell, entry.old)
 		"furniture_add":
 			var inst := _find_entry_instance(entry.entry)
 			if inst != null:
@@ -520,6 +601,67 @@ func _spawn_floor_cell(cell: Vector2i) -> Node3D:
 	var node := _spawn_piece("floor", Vector3(cell.x, -0.05, cell.y), 0.0, 0.5)
 	_apply_tint(node, "floor", _floor_display_tint(cell))
 	return node
+
+
+# ---------------------------------------------------------------------------
+# Structural points (order intake / delivery)
+# ---------------------------------------------------------------------------
+
+func _build_points() -> void:
+	for cell: Vector2i in data.points:
+		_point_nodes[cell] = _spawn_point(cell, data.points[cell])
+
+
+func _spawn_point(cell: Vector2i, kind: int) -> Node3D:
+	var holder := Node3D.new()
+	holder.position = Vector3(cell.x, 0.0, cell.y)
+	_generated.add_child(holder)
+	var scene := load(POINT_TABLE) as PackedScene
+	var model := scene.instantiate() as Node3D
+	model.scale = Vector3.ONE * point_scale
+	holder.add_child(model)
+	# The point table's origin is off-center: re-center it by its bounds.
+	var aabb := MeshBounds.combined_aabb(model)
+	if aabb.size != Vector3.ZERO:
+		var center := aabb.get_center()
+		model.position -= Vector3(center.x, aabb.position.y, center.z)
+		_point_top = aabb.size.y
+	var color := pickup_color if kind == KitchenLayout.PointKind.PICKUP else delivery_color
+	_apply_flat_color(holder, color)
+	return holder
+
+
+## Hard, fully saturated colour (not a multiply tint) so the markers read at a
+## glance and stay outside the player's colour tools.
+func _apply_flat_color(node: Node, color: Color) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var mi := child as MeshInstance3D
+			mi.material_override = _flat_material(color)
+			mi.material_overlay = null
+		_apply_flat_color(child, color)
+
+
+func _flat_material(color: Color) -> StandardMaterial3D:
+	var key := "flat:" + color.to_html()
+	if _material_cache.has(key):
+		return _material_cache[key]
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.85
+	mat.metallic = 0.0
+	_material_cache[key] = mat
+	return mat
+
+
+func _refresh_point(cell: Vector2i) -> void:
+	if _generated == null:
+		return
+	if _point_nodes.has(cell):
+		(_point_nodes[cell] as Node3D).free()
+		_point_nodes.erase(cell)
+	if data.points.has(cell):
+		_point_nodes[cell] = _spawn_point(cell, data.points[cell])
 
 
 func _refresh_floor_cell(cell: Vector2i) -> void:

@@ -22,6 +22,11 @@ static func find(id: StringName) -> FurnitureDef:
 	return null
 
 
+## Releases the cached resources (called on shutdown so the engine exits clean).
+static func clear_caches() -> void:
+	_cache.clear()
+
+
 static func build() -> Array[FurnitureDef]:
 	var out: Array[FurnitureDef] = []
 	# id, name, model, footprint, cost, tags
@@ -44,6 +49,7 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("sofa_long", "Long Sofa", "loungeDesignSofa.glb", Vector2i(3, 1), 160, ["dining", "comfort"]))
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
 	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
+	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"]))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
 	return out
 
@@ -59,4 +65,13 @@ static func _make(id: String, name: String, file: String, footprint: Vector2i, c
 	for tag in tags:
 		tag_list.append(StringName(tag))
 	def.tags = tag_list
+	if id == "assembly_table":
+		# A 3x1 station: input cell, worker cell, output cell, left to right.
+		def.auto_footprint = false
+		def.scale_axis = Vector3(1.55, 1.0, 1.0)
+		def.zones = [
+			{"offset": Vector2i(0, 0), "role": "input"},
+			{"offset": Vector2i(1, 0), "role": "work"},
+			{"offset": Vector2i(2, 0), "role": "output"},
+		]
 	return def
