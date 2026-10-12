@@ -163,11 +163,19 @@ func detach_to(parent_node: Node3D, world_pos: Vector3) -> void:
 	snap_to(world_pos)
 
 
-func matches(item_id: StringName, order_id: int, needs_order: bool) -> bool:
+## Does this item satisfy a requirement? [param payload_match] values may be
+## "$order" (the job's order id) or literals such as a dish variant id; an
+## empty string matches an item without that payload key.
+func matches(item_id: StringName, order_id: int, payload_match: Dictionary) -> bool:
 	if def.id != item_id:
 		return false
-	if needs_order and int(payload.get("order", -1)) != order_id:
-		return false
+	for key: String in payload_match:
+		var want: Variant = payload_match[key]
+		if want == "$order":
+			want = order_id
+		var have: Variant = payload.get(key, "")
+		if str(have) != str(want):
+			return false
 	return true
 
 

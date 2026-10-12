@@ -14,8 +14,8 @@ func _ready() -> void:
 	add_child(sub)
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	sub.add_child(scene)
-	var kitchen := scene.get_node_or_null("Kitchen") as Kitchen
-	var rig := scene.get_node_or_null("CameraRig") as CameraRig
+	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
+	var rig := scene.find_child("CameraRig", true, false) as CameraRig
 	# Optional view overrides, e.g.:
 	#   godot --path . res://tools/capture.tscn -- --pitch=88 --dist=26
 	for arg in OS.get_cmdline_user_args():
@@ -36,7 +36,7 @@ func _ready() -> void:
 				rig.focus_on(Vector3(float(parts[0]), 0.0, float(parts[1])))
 	if rig != null:
 		rig._apply()
-	var look := scene.get_node_or_null("WorldEnvironment") as LookConfig
+	var look := scene.find_child("WorldEnvironment", true, false) as LookConfig
 	if look != null:
 		for arg in OS.get_cmdline_user_args():
 			if arg.begins_with("--ambient="):
@@ -56,13 +56,13 @@ func _ready() -> void:
 			" exposure=", look.tonemap_exposure,
 			" | env ssao=", look.environment.ssao_enabled if look.environment != null else "no env",
 			" intensity=", look.environment.ssao_intensity if look.environment != null else -1)
-	var sun := scene.get_node_or_null("Sun") as DirectionalLight3D
+	var sun := scene.find_child("Sun", true, false) as DirectionalLight3D
 	if sun != null:
 		for arg in OS.get_cmdline_user_args():
 			if arg.begins_with("--sun="):
 				sun.light_energy = float(arg.split("=")[1])
 		print("sun energy=", sun.light_energy, " shadows=", sun.shadow_enabled)
-	var placer := scene.get_node_or_null("PlaceController") as PlaceController
+	var placer := scene.find_child("PlaceController", true, false) as PlaceController
 	if placer != null:
 		placer.set_process(false)
 		placer.set_process_unhandled_input(false)
@@ -70,11 +70,15 @@ func _ready() -> void:
 			if child is Node3D:
 				(child as Node3D).visible = false
 	if "--selftest" in OS.get_cmdline_user_args() and kitchen != null:
-		_self_test(kitchen, scene)
+		await _self_test(kitchen, scene)
 	if "--furniture" in OS.get_cmdline_user_args() and kitchen != null:
 		_place_demo_furniture(kitchen)
 	if "--sim" in OS.get_cmdline_user_args():
 		_run_sim(scene)
+	if "--sim-day" in OS.get_cmdline_user_args():
+		_run_day(scene)
+	if "--start-day" in OS.get_cmdline_user_args():
+		_start_day(scene)
 	if "--sim-ticks=" in " ".join(OS.get_cmdline_user_args()) and kitchen != null:
 		_run_sim_ticks(scene)
 	if "--check" in OS.get_cmdline_user_args() and kitchen != null and kitchen.data != null:
@@ -128,7 +132,7 @@ func _ready() -> void:
 			" | furniture ", kitchen.data.furniture.size(), " -> ", reparsed.furniture.size(),
 			" match=", furniture_match)
 	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
-		kitchen.paint_floor_tint(Vector2i(4, 6), Color(0.95, 0.35, 0.35))
+		kitchen.paint_floor_tint(Vector2i(6, 3), Color(0.95, 0.35, 0.35))
 	if "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
 	if "--item-showcase" in OS.get_cmdline_user_args():
@@ -138,7 +142,7 @@ func _ready() -> void:
 	if rig != null:
 		var cam: Camera3D = rig.get_node_or_null("Camera3D")
 		print("cam pos=", cam.global_position if cam != null else "none", " current=", cam.current if cam != null else false)
-	for i in 20:
+	for i in 45:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var image := sub.get_texture().get_image()
@@ -159,7 +163,7 @@ func _pixel_test(image: Image, kitchen: Kitchen, rig: CameraRig) -> void:
 	var b := _sample_cell(image, cam, kitchen, Vector2i(2, 7))
 	var delta := absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
 	_expect(delta > 0.004, "checker: adjacent floor tiles differ (delta %.4f)" % delta)
-	var tinted := _sample_cell(image, cam, kitchen, Vector2i(4, 6))
+	var tinted := _sample_cell(image, cam, kitchen, Vector2i(6, 3))
 	_expect(tinted.r > tinted.g + 0.05 and tinted.r > tinted.b + 0.05,
 		"floor tint: painted cell renders red (%.2f %.2f %.2f)" % [tinted.r, tinted.g, tinted.b])
 
@@ -207,15 +211,81 @@ func _put(kitchen: Kitchen, by_id: Dictionary, id: StringName, cell: Vector2i, s
 		print("could not place ", id, " at ", cell)
 
 
+## Runs a whole day headlessly: gate -> start -> ticks until the summary, then
+## the loss path (too many pending orders).
+func _run_day(scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	if service == null or day == null:
+		print("[day-sim] missing service or day controller")
+		return
+	service.sim_speed = 0.0
+	service.orders.arrive_on_turn_in = false
+	_reset_world(service)
+	# Start from a clean slate: leftover orders from earlier sims would otherwise
+	# trip the "waited too long" loss rule immediately.
+	var reasons := day.can_start_day()
+	print("[day-sim] gate reasons: ", reasons)
+	_expect(reasons.is_empty(), "day: the demo kitchen passes the gate")
+	_expect(day.start_day(), "day: start accepted")
+	var money_before: int = service.orders.money
+	var ticks := 0
+	while day.phase == DayController.Phase.DAY and ticks < 30000:
+		service.tick_once()
+		ticks += 1
+	print("[day-sim] day %d finished in %d ticks: served=%d money=%d lost=%s reason=%s" % [
+		day.day, ticks, day.served, service.orders.money, str(day.lost), day.loss_reason])
+	for arrival: Dictionary in day.plan.arrivals:
+		print("[day-sim]   arrival at %d: %s adds=%s removes=%s" % [
+			int(arrival["tick"]), arrival["dish"], arrival["adds"], arrival["removes"]])
+	for order in service.orders.orders:
+		if order.is_active():
+			print("[day-sim]   order #%d arrived at %d, age %d" % [
+				order.id, order.created_tick, service.tick - order.created_tick])
+	for line in service.events.slice(maxi(0, service.events.size() - 12)):
+		print("    ", line)
+	_expect(day.phase == DayController.Phase.SUMMARY, "day: reaches the summary")
+	_expect(not day.lost, "day: completed without a loss")
+	_expect(day.served == day.plan.arrivals.size(), "day: every scheduled order was served")
+	_expect(service.orders.money == money_before + day.served * service.orders.reward_per_order,
+		"day: every served order paid out")
+	day.finish_day()
+	_expect(day.phase == DayController.Phase.BUILD, "day: back to the build phase")
+	# loss path: too many pending orders
+	_expect(day.start_day(), "day: a second day starts")
+	for i in service.orders.max_pending + 2:
+		service.request_order()
+	service.tick_once()
+	_expect(day.phase == DayController.Phase.SUMMARY and day.lost,
+		"day: too many pending orders loses the day")
+	day.finish_day()
+
+
+## Starts day 1 from a clean kitchen (for screenshots / real-time watching).
+func _start_day(scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	if service == null or day == null:
+		return
+	_reset_world(service)
+	var reasons := day.can_start_day()
+	print("[start-day] gate: ", reasons)
+	if reasons.is_empty():
+		day.start_day()
+
+
 ## Runs exactly N ticks (so a screenshot can catch workers mid-action).
 func _run_sim_ticks(scene: Node) -> void:
-	var service := scene.get_node_or_null("Service") as Service
+	var service := scene.find_child("Service", true, false) as Service
 	if service == null:
 		return
 	service.sim_speed = 0.0
 	service.orders.arrive_on_turn_in = false
+	if service.orders.active_orders().is_empty():
+		service.request_order()
 	for order in service.orders.active_orders():
-		service.plan_order(order)
+		if order.state == Order.State.UNPLANNABLE:
+			service.plan_order(order)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--sim-ticks="):
 			service.run_ticks(int(arg.split("=")[1]))
@@ -225,41 +295,61 @@ func _run_sim_ticks(scene: Node) -> void:
 	print("[sim-ticks] ", service.status_text())
 
 
+## Puts the kitchen back into a reproducible starting state for the sims: no
+## jobs, no active orders, no loose items and a full tray pool at the intake.
+func _reset_world(service: Service) -> void:
+	service.orders.arrive_on_turn_in = false
+	for worker in service.workers:
+		worker.force_idle()
+	for job in service.board.jobs:
+		service.board.cancel(job, "reset")
+	service.board.cleanup()
+	for order in service.orders.orders:
+		if order.is_active():
+			order.state = Order.State.FAILED
+	for item in service.items.items.duplicate():
+		service.items.remove(item)
+	service._seed_trays()
+
+
 ## Runs the order -> jobs -> items pipeline headlessly (workers, tick by tick)
 ## and asserts the whole burger cycle, including tray recycling through the sink.
 func _run_sim(scene: Node) -> void:
-	var service := scene.get_node_or_null("Service") as Service
+	var service := scene.find_child("Service", true, false) as Service
 	if service == null:
 		print("[sim] no service node")
 		return
 	service.sim_speed = 0.0  # manual, deterministic stepping
 	service.orders.arrive_on_turn_in = false
-	# The service tried to plan before the furniture existed; plan for real now.
-	for order in service.orders.active_orders():
-		service.plan_order(order)
+	_reset_world(service)
+	if service.orders.active_orders().is_empty():
+		service.request_order()
+	var completed_before: int = service.orders.completed_count
+	var money_before: int = service.orders.money
 	var ticks := service.run_until_idle(20000)
 	print("[sim] first order: ticks=", ticks, " completed=", service.orders.completed_count,
 		" money=", service.orders.money, " trays=", _tray_count(service),
 		" items=", service.items.items.size())
-	_expect(service.orders.completed_count == 1, "sim: one order completed end to end")
-	_expect(service.orders.money == service.orders.reward_per_order, "sim: order paid out")
+	_expect(service.orders.completed_count == completed_before + 1, "sim: one order completed end to end")
+	_expect(service.orders.money == money_before + service.orders.reward_per_order, "sim: order paid out")
 	_expect(_tray_count(service) == 3, "sim: all trays accounted for")
 	_expect(_log_has(service, "Plate Dish"), "sim: a dish was plated onto a tray")
 	_expect(_log_has(service, "Hand Over"), "sim: the tray was handed over")
 	# Now let turn-ins spawn follow-up orders; the 4th needs a washed tray.
 	service.orders.arrive_on_turn_in = true
 	service.request_order()
+	var target_completed: int = completed_before + 4
 	var loop_ticks := 0
-	while service.orders.completed_count < 4 and loop_ticks < 40000:
+	while service.orders.completed_count < target_completed and loop_ticks < 40000:
 		if service.board.pending_count() == 0 and not service.has_active_jobs():
 			break
 		service.tick_once()
 		loop_ticks += 1
 	print("[sim] loop: ticks=", loop_ticks, " completed=", service.orders.completed_count,
 		" money=", service.orders.money, " trays=", _tray_count(service))
-	if service.orders.completed_count < 4:
+	if service.orders.completed_count < target_completed:
 		_stuck_report(service)
-	_expect(service.orders.completed_count >= 4, "sim: repeated orders keep completing")
+	_expect(service.orders.completed_count >= target_completed, "sim: repeated orders keep completing")
 	_expect(_log_has(service, "Wash Tray"), "sim: the sink washed a dirty tray back into the pool")
 	_expect(_tray_count(service) == 3, "sim: the tray pool stays whole after recycling")
 	# Stop the order flow and clear the board, then everyone should walk home.
@@ -310,6 +400,14 @@ func _stuck_report(service: Service) -> void:
 				blocker = "no station"
 			elif job.station.busy_by != null and job.station.busy_by != job:
 				blocker = "station busy"
+			elif inputs == null:
+				for entry in job.recipe.inputs:
+					var need_id := StringName(entry.get("item", &""))
+					var req := RecipeDef.payload_requirement(entry)
+					print("      needs %s x%d match=%s" % [need_id, int(entry.get("amount", 1)), req])
+					for cell in job.station.input_cells:
+						for it in service.items.items_at(cell):
+							print("        at %s: %s payload=%s reserved=%s" % [cell, it.def.id, it.payload, it.reserved_by != null])
 		else:
 			blocker = "item gone" if (job.item == null or not service.items.items.has(job.item)) else "ready"
 		print("    #%d %s [%s]" % [job.id, job.describe(), blocker])
@@ -333,8 +431,8 @@ func _log_has(service: Service, text: String) -> bool:
 ## Spawns one of every item in a row and prints its measured size + height, so
 ## item scale, centering and surface heights can be eyeballed in one shot.
 func _item_showcase(scene: Node) -> void:
-	var service := scene.get_node_or_null("Service") as Service
-	var kitchen := scene.get_node_or_null("Kitchen") as Kitchen
+	var service := scene.find_child("Service", true, false) as Service
+	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
 	if service == null or kitchen == null:
 		return
 	print("[showcase] surface heights: floor=%.2f fridge=%.2f counter=%.2f stove=%.2f point=%.2f"
@@ -436,6 +534,30 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(kitchen.place_furniture(table, Vector2i(12, 9), 0) != null, "long table placed")
 	_expect(not kitchen.paint_wall(Vector2i(12, 9), KitchenLayout.DIR_X, KitchenLayout.Wall.SOLID), "cannot paint a wall through a piece")
 	kitchen.remove_furniture_at(Vector2i(12, 9))
+	# --- dragging a placed piece (build-phase rearranging) ---
+	_expect(kitchen.place_furniture(table, Vector2i(12, 9), 0) != null, "table placed for the drag test")
+	var dragging := kitchen.furniture_at(Vector2i(12, 9))
+	var entries_before := data.furniture.size()
+	kitchen.begin_grab(dragging)
+	_expect(kitchen.furniture_at(Vector2i(12, 9)) == null, "a grabbed piece leaves the occupancy map")
+	_expect(kitchen.can_place(table, Vector2i(12, 9), 0), "its old cell is free while carried")
+	_expect(not kitchen.move_furniture(dragging, Vector2i(60, 60), 0), "dragging onto void is refused")
+	_expect(kitchen.furniture_at(Vector2i(12, 9)) == null, "a refused drag leaves the piece in hand")
+	var drop_cell := Vector2i(12, 9)
+	for candidate in [Vector2i(12, 7), Vector2i(10, 9), Vector2i(14, 9), Vector2i(12, 11)]:
+		if kitchen.can_place(table, candidate, 0):
+			drop_cell = candidate
+			break
+	_expect(drop_cell != Vector2i(12, 9), "found a free cell to drop onto")
+	_expect(kitchen.move_furniture(dragging, drop_cell, 0), "drag moves the piece")
+	_expect(kitchen.furniture_at(drop_cell) == dragging, "the piece occupies its new cell")
+	_expect(data.furniture.size() == entries_before, "the move rewrites the layout entry")
+	_expect(not kitchen.can_place(table, drop_cell, 0), "the new cell is taken afterwards")
+	_expect(kitchen.undo() and kitchen.furniture_at(Vector2i(12, 9)) == dragging, "undo moves the piece back")
+	kitchen.begin_grab(dragging)
+	kitchen.cancel_grab(dragging)
+	_expect(kitchen.furniture_at(Vector2i(12, 9)) == dragging, "cancelling a drag returns the piece home")
+	kitchen.remove_furniture_at(Vector2i(12, 9))
 	_expect(kitchen.paint_wall(Vector2i(12, 9), KitchenLayout.DIR_X, KitchenLayout.Wall.SOLID), "paint an interior wall")
 	_expect(kitchen.paint_wall_tint(Vector2i(12, 9), KitchenLayout.DIR_X, Color(0.9, 0.6, 0.3)), "paint a wall tint")
 	_expect((kitchen.data.wall_tints.get(KitchenLayout.edge_key(Vector2i(12, 9), KitchenLayout.DIR_X), Color.WHITE) as Color)
@@ -449,8 +571,28 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(tinted and data.has_floor(Vector2i(0, 0)), "paint plating")
 	_expect(kitchen.undo() and not data.has_floor(Vector2i(0, 0)), "undo removes the painted floor")
 	_expect(kitchen.undo() and not data.floor_tints.has(Vector2i(5, 5)), "undo removes the floor tint")
+	# --- UI: the kitchen frame forwards mouse input into the world viewport ---
+	var ui := scene.get_node_or_null("UI")
+	if ui != null:
+		var world_vp := scene.find_child("World", true, false) as SubViewport
+		var placer2 := scene.find_child("PlaceController", true, false) as PlaceController
+		var frame := ui.get_node_or_null("KitchenFrame") as Control
+		_expect(world_vp != null and frame != null, "ui: the kitchen frame shows the world viewport")
+		if world_vp != null and frame != null and placer2 != null:
+			var ev := InputEventMouseMotion.new()
+			ev.position = frame.size * 0.5
+			ev.global_position = ev.position
+			ui._on_frame_input(ev)
+			await get_tree().process_frame
+			var world_mouse := world_vp.get_mouse_position()
+			_expect(world_mouse.distance_to(frame.size * 0.5) < 4.0,
+				"ui: forwarded input sets the world viewport mouse position (%s)" % world_mouse)
+			# The capture disables the placer for clean screenshots; drive it once.
+			placer2._process(0.016)
+			_expect(placer2._has_hover, "ui: the placement controller picks up the forwarded mouse")
+			placer2._hide()
 	# --- map paint controller ---
-	var painter := scene.get_node_or_null("MapPaintController") as MapPaintController
+	var painter := scene.find_child("MapPaintController", true, false) as MapPaintController
 	if painter != null:
 		_expect(painter._edge_from_hit(Vector3(7.4, 0, 5.1), Vector2i(7, 5))
 			== KitchenLayout.edge_key(Vector2i(7, 5), KitchenLayout.DIR_X), "hover near +x picks the east edge")
@@ -510,7 +652,7 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			"rotated assembly output zone")
 		kitchen.remove_furniture_at(Vector2i(5, 5))
 	# the planner explains what is missing (pretend the kitchen is empty)
-	var service := scene.get_node_or_null("Service") as Service
+	var service := scene.find_child("Service", true, false) as Service
 	if service != null:
 		service.planner.items = service.items
 		service.planner.stations = []  # nothing built: planning must refuse
@@ -525,6 +667,90 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(_contains(service.planner.warnings, "delivery") or _contains(service.planner.warnings, "assembly"),
 			"the planner explains what is missing")
 		service.planner.stations = service.stations
+		# --- build-phase money ---
+		var wallet: OrderManager = service.orders
+		var purse: int = wallet.money
+		_expect(wallet.try_spend(100), "money: spending works when affordable")
+		_expect(wallet.money == purse - 100, "money: spending deducts the cost")
+		wallet.add_money(100)
+		_expect(wallet.money == purse, "money: refunds add back")
+		_expect(not wallet.try_spend(purse + 10), "money: spending more than the purse is refused")
+		_expect(wallet.money == purse, "money: a refused purchase changes nothing")
+		# --- modifiers: variants and payload matching ---
+		var no_cheese := RecipeCatalog.variant_of(&"burger", [&"no_cheese"])
+		_expect(no_cheese != null and no_cheese.variant_id == &"burger__no_cheese",
+			"variant: a no-cheese burger gets a derived variant id")
+		var has_cheese_input := false
+		for variant_entry in no_cheese.inputs:
+			if StringName(variant_entry.get("item", &"")) == &"cheese_slice":
+				has_cheese_input = true
+		_expect(not has_cheese_input, "variant: the no-cheese recipe drops the cheese input")
+		_expect(RecipeCatalog.variant_of(&"burger", []).variant_id == &"",
+			"variant: an unmodified dish has no variant id")
+		var probe_dish := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 5),
+			{"variant": "burger__no_cheese"}, 0.05)
+		_expect(not probe_dish.matches(&"burger", -1, {"variant": ""}),
+			"variant: a modified dish does not satisfy a plain order")
+		_expect(probe_dish.matches(&"burger", -1, {"variant": "burger__no_cheese"}),
+			"variant: it does satisfy its own variant")
+		service.items.remove(probe_dish)
+		var mod_order := service.orders.spawn(&"burger", [&"add_fries"], [&"no_cheese"])
+		_expect(service.plan_order(mod_order), "modifier order plans")
+		var fetches_cheese := false
+		var fetches_fries := false
+		for job in service.board.jobs:
+			if job.recipe != null and job.recipe.is_source:
+				if job.recipe.output == &"cheese_slice":
+					fetches_cheese = true
+				if job.recipe.output == &"fries":
+					fetches_fries = true
+		_expect(not fetches_cheese, "modifier order never fetches the removed ingredient")
+		_expect(fetches_fries, "modifier order fetches the add-on")
+		service.board.cancel_for_order(mod_order)
+		mod_order.state = Order.State.FAILED
+		# --- the Start Day gate ---
+		_expect(service.can_serve(&"burger", [], []).is_empty(),
+			"gate: the demo kitchen can serve a plain burger")
+		_expect(service.can_serve(&"burger", [&"add_fries"], [&"no_cheese"]).is_empty(),
+			"gate: the demo kitchen can serve a modified burger")
+		var saved_stations := service.stations.duplicate()
+		var no_cooking: Array[StationInstance] = []
+		for st in service.stations:
+			if not st.has_tag(&"cooking"):
+				no_cooking.append(st)
+		service.stations = no_cooking
+		var reasons_bad := service.can_serve(&"burger", [], [])
+		_expect(not reasons_bad.is_empty(), "gate: a kitchen without a stove is refused")
+		_expect(_contains(reasons_bad, "cooking") or _contains(reasons_bad, "Cooked Patty"),
+			"gate: the refusal names what is missing")
+		service.stations = saved_stations
+		# --- day plans are deterministic ---
+		var plan_a := DayPlan.generate(1, 1234, [&"burger"], [&"add_fries", &"no_cheese"], 3, 600, 2)
+		var plan_b := DayPlan.generate(1, 1234, [&"burger"], [&"add_fries", &"no_cheese"], 3, 600, 2)
+		_expect(plan_a.arrivals.size() == 3, "day plan: day one asks three orders")
+		var identical := plan_a.arrivals.size() == plan_b.arrivals.size()
+		for i in plan_a.arrivals.size():
+			if not identical:
+				break
+			var ra: Dictionary = plan_a.arrivals[i]
+			var rb: Dictionary = plan_b.arrivals[i]
+			if ra["tick"] != rb["tick"] or ra["dish"] != rb["dish"] \
+					or ra["adds"] != rb["adds"] or ra["removes"] != rb["removes"]:
+				identical = false
+		_expect(identical, "day plan: the same seed replays the same day")
+		var plan_c := DayPlan.generate(1, 4321, [&"burger"], [&"add_fries", &"no_cheese"], 3, 600, 2)
+		var differs := false
+		for i in mini(plan_a.arrivals.size(), plan_c.arrivals.size()):
+			var ra2: Dictionary = plan_a.arrivals[i]
+			var rc: Dictionary = plan_c.arrivals[i]
+			if ra2["tick"] != rc["tick"] or ra2["adds"] != rc["adds"] or ra2["removes"] != rc["removes"]:
+				differs = true
+		_expect(differs, "day plan: a different seed makes a different day")
+		var in_range := true
+		for arrival: Dictionary in plan_a.arrivals:
+			if int(arrival["tick"]) < 0 or int(arrival["tick"]) > plan_a.max_ticks:
+				in_range = false
+		_expect(in_range, "day plan: arrivals fit inside the day")
 		# --- presentation: motion is time-based, not frame- or tick-based ---
 		var item_a := service.items.spawn(ItemCatalog.find(&"burger"), Vector2i(9, 6), {}, 0.05)
 		var target_a := WorldItem.cell_position(Vector2i(12, 6), 0.05)

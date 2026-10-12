@@ -57,6 +57,11 @@ func set_bounds(rect: Rect2) -> void:
 	bounds = rect.grow(focus_margin)
 
 
+## Smoothly zooms to a distance (the rig lerps towards it every frame).
+func set_distance(new_distance: float) -> void:
+	_target_distance = clampf(new_distance, min_distance, max_distance)
+
+
 func _process(delta: float) -> void:
 	if camera == null:
 		return

@@ -69,5 +69,9 @@ func cleanup() -> void:
 func _release(job: Job) -> void:
 	if job.item != null and job.item.reserved_by == job:
 		job.item.reserved_by = null
+	for held in job.reserved_items:
+		if held != null and held.reserved_by == job:
+			held.reserved_by = null
+	job.reserved_items.clear()
 	if job.station != null and job.station.busy_by == job:
 		job.station.busy_by = null

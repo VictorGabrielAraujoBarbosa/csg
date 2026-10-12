@@ -9,6 +9,10 @@ var recipe_id: StringName = &""
 var dish_name := ""
 ## Simulation tick the order arrived.
 var created_tick := 0
+## Modifiers asked for, and the dish variant they imply.
+var adds: Array[StringName] = []
+var removes: Array[StringName] = []
+var variant: StringName = &""
 ## Absolute tick the order must be completed by (0 = no limit).
 var deadline_tick := 0
 var state := State.WAITING

@@ -5,8 +5,16 @@ extends Node3D
 
 signal selection_changed(text: String)
 
+## How quickly a dragged piece catches up with the mouse (higher = tighter).
+const GRAB_INERTIA := 7.0
+## How quickly the purchase ghost follows the mouse.
+const GHOST_INERTIA := 11.0
+## Lift applied while carrying a piece, so it hovers above the floor.
+const GRAB_LIFT := 0.22
+
 @export var kitchen: Kitchen
 @export var camera: Camera3D
+@export var service: Service
 @export var catalog: Array[FurnitureDef] = []
 ## When false, the placer ignores input and hides its feedback (map edit mode).
 var enabled := true
@@ -32,6 +40,12 @@ var _has_hover := false
 var _valid := false
 var _last_cells: Array[Vector2i] = []
 var _last_valid := false
+## Drag-and-drop state: a placed piece being rearranged.
+var _grabbed: FurnitureInstance = null
+var _grab_visual := Vector3.ZERO
+## The ghost lags behind the mouse like a heavy object.
+var _ghost_visual := Vector3.ZERO
+var _ghost_visual_ready := false
 
 
 func _ready() -> void:
@@ -39,6 +53,8 @@ func _ready() -> void:
 		kitchen = get_node_or_null("../Kitchen") as Kitchen
 	if camera == null:
 		camera = get_node_or_null("../CameraRig/Camera3D") as Camera3D
+	if service == null:
+		service = get_node_or_null("../Service") as Service
 	if catalog.is_empty():
 		catalog = FurnitureCatalog.all()
 	_ghost_valid_mat = _ghost_material(ghost_valid_color)
@@ -60,13 +76,21 @@ func current_def() -> FurnitureDef:
 	return catalog[posmod(index, catalog.size())]
 
 
+## Selects a catalog entry by id (used by the build catalog UI).
+func select_by_id(id: StringName) -> void:
+	for i in catalog.size():
+		if catalog[i].id == id:
+			_select(i)
+			return
+
+
 func set_enabled(value: bool) -> void:
 	enabled = value
 	if not enabled:
 		_hide()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not enabled or kitchen == null or camera == null or kitchen.data == null:
 		return
 	var mouse := get_viewport().get_mouse_position()
@@ -82,7 +106,74 @@ func _process(_delta: float) -> void:
 	var cell := kitchen.world_to_cell(from + dir * t)
 	_hover_cell = cell
 	_has_hover = true
-	_update_ghost()
+	_update_ghost(delta)
+	_update_grab(delta)
+
+
+## The purchase ghost follows the mouse with a little inertia.
+func _update_ghost(delta: float) -> void:
+	var def := current_def()
+	if def == null:
+		return
+	if _ghost == null or _ghost.def != def:
+		_rebuild_ghost()
+	_valid = kitchen.can_place(def, _hover_cell, rot_steps)
+	var off := def.cell_center_offset(rot_steps)
+	var target := kitchen.cell_to_world(_hover_cell) + Vector3(off.x, 0.0, off.y)
+	if not _ghost_visual_ready:
+		_ghost_visual = target
+		_ghost_visual_ready = true
+	else:
+		_ghost_visual = _ghost_visual.lerp(target, 1.0 - exp(-GHOST_INERTIA * delta))
+	_ghost.visible = _grabbed == null
+	_ghost.position = _ghost_visual
+	_ghost.rotation_degrees = Vector3(0.0, rot_steps * 90.0 + def.yaw_offset_deg, 0.0)
+	_ghost.set_material_override_all(_ghost_valid_mat if _valid else _ghost_invalid_mat)
+	_update_highlights(def)
+
+
+## The grabbed piece hovers and lags behind the mouse while being carried.
+func _update_grab(delta: float) -> void:
+	if _grabbed == null:
+		return
+	var def := _grabbed.def
+	_valid = kitchen.can_place(def, _hover_cell, rot_steps)
+	var off := def.cell_center_offset(rot_steps)
+	var target := kitchen.cell_to_world(_hover_cell) + Vector3(off.x, 0.0, off.y)
+	_grab_visual = _grab_visual.lerp(target, 1.0 - exp(-GRAB_INERTIA * delta))
+	_grabbed.position = _grab_visual + Vector3(0.0, GRAB_LIFT, 0.0)
+	_grabbed.rotation_degrees = Vector3(0.0, rot_steps * 90.0 + def.yaw_offset_deg, 0.0)
+	_grabbed.set_material_override_all(_ghost_valid_mat if _valid else _ghost_invalid_mat)
+	_update_highlights(def)
+
+
+func _grab(inst: FurnitureInstance) -> void:
+	_grabbed = inst
+	rot_steps = inst.rot_steps
+	_grab_visual = inst.position - Vector3(0.0, GRAB_LIFT, 0.0)
+	kitchen.begin_grab(inst)
+	inst.set_material_override_all(_ghost_invalid_mat)
+
+
+func _drop_grab() -> void:
+	if _grabbed == null:
+		return
+	if kitchen.move_furniture(_grabbed, _hover_cell, rot_steps):
+		kitchen.refresh_furniture_tints(_grabbed)
+		_grabbed = null
+		_last_cells.clear()
+	else:
+		# Invalid spot: keep holding it (red) until the player finds room.
+		pass
+
+
+func _cancel_grab() -> void:
+	if _grabbed == null:
+		return
+	kitchen.cancel_grab(_grabbed)
+	kitchen.refresh_furniture_tints(_grabbed)
+	_grabbed = null
+	_last_cells.clear()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -104,7 +195,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			_try_place()
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
-			if kitchen.remove_furniture_at(_hover_cell):
+			if _grabbed != null:
+				_cancel_grab()
+			elif kitchen.remove_furniture_at(_hover_cell):
 				_last_cells.clear()
 
 
@@ -120,13 +213,27 @@ func _select(new_index: int) -> void:
 
 
 func _try_place() -> void:
-	if not _has_hover or not _valid:
+	if not _has_hover:
+		return
+	if _grabbed != null:
+		_drop_grab()
+		return
+	if not _valid:
+		# Clicking an occupied cell picks that piece up for rearranging.
+		var existing := kitchen.furniture_at(_hover_cell)
+		if existing != null:
+			_grab(existing)
 		return
 	var def := current_def()
 	if def == null:
 		return
+	if service != null and not service.orders.try_spend(def.cost):
+		return
 	if kitchen.place_furniture(def, _hover_cell, rot_steps) != null:
 		_last_cells.clear()
+	elif service != null:
+		# Placing failed for a non-money reason: give the money back.
+		service.orders.add_money(def.cost)
 
 
 func _rebuild_ghost() -> void:
@@ -140,21 +247,6 @@ func _rebuild_ghost() -> void:
 	_ghost = FurnitureInstance.new()
 	_ghost.setup(def, Vector2i.ZERO, 0)
 	add_child(_ghost)
-
-
-func _update_ghost() -> void:
-	var def := current_def()
-	if def == null:
-		return
-	if _ghost == null or _ghost.def != def:
-		_rebuild_ghost()
-	_valid = kitchen.can_place(def, _hover_cell, rot_steps)
-	var off := def.cell_center_offset(rot_steps)
-	_ghost.visible = true
-	_ghost.position = kitchen.cell_to_world(_hover_cell) + Vector3(off.x, 0.0, off.y)
-	_ghost.rotation_degrees = Vector3(0.0, rot_steps * 90.0 + def.yaw_offset_deg, 0.0)
-	_ghost.set_material_override_all(_ghost_valid_mat if _valid else _ghost_invalid_mat)
-	_update_highlights(def)
 
 
 func _update_highlights(def: FurnitureDef) -> void:

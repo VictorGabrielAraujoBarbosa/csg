@@ -31,21 +31,31 @@ var _next_id := 1
 var _tick := 0
 
 
-func spawn(dish: StringName = dish_id) -> Order:
+func spawn(dish: StringName = dish_id, order_adds: Array = [], order_removes: Array = []) -> Order:
 	var order := Order.new()
 	order.id = _next_id
 	_next_id += 1
 	order.recipe_id = dish
 	order.created_tick = _tick
+	for id: StringName in order_adds:
+		order.adds.append(id)
+	for id: StringName in order_removes:
+		order.removes.append(id)
 	var recipe := RecipeCatalog.find(dish)
 	order.dish_name = recipe.display_name if recipe != null else String(dish)
+	order.variant = RecipeCatalog.variant_of(dish, order.removes).variant_id
 	order.reward = reward_per_order
 	if time_limit_ticks > 0:
 		order.deadline_tick = _tick + time_limit_ticks
 	orders.append(order)
 	order_added.emit(order)
 	changed.emit()
-	print("[order] new #%d %s" % [order.id, order.dish_name])
+	var mods := PackedStringArray()
+	for id: StringName in order.adds:
+		mods.append(ModifierCatalog.label(id))
+	for id: StringName in order.removes:
+		mods.append(ModifierCatalog.label(id))
+	print("[order] new #%d %s %s" % [order.id, order.dish_name, " ".join(mods)])
 	return order
 
 
@@ -78,6 +88,25 @@ func active_orders() -> Array[Order]:
 		if order.is_active():
 			out.append(order)
 	return out
+
+
+## Build-phase money helpers (the day controller owns when they are used).
+func can_afford(cost: int) -> bool:
+	return money >= cost
+
+
+func try_spend(cost: int) -> bool:
+	if money < cost:
+		return false
+	money -= cost
+	changed.emit()
+	print("[money] spent $%d (total $%d)" % [cost, money])
+	return true
+
+
+func add_money(amount: int) -> void:
+	money += amount
+	changed.emit()
 
 
 ## One simulation tick.

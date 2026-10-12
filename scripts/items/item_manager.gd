@@ -119,13 +119,13 @@ func items_at(cell: Vector2i) -> Array[WorldItem]:
 
 
 ## A free (unreserved) item matching the request, preferring the nearest.
-func find_free(item_id: StringName, order_id: int, needs_order: bool, near: Vector2i) -> WorldItem:
+func find_free(item_id: StringName, order_id: int, payload_match: Dictionary, near: Vector2i) -> WorldItem:
 	var best: WorldItem = null
 	var best_dist := 1 << 30
 	for item in items:
 		if item.reserved_by != null:
 			continue
-		if not item.matches(item_id, order_id, needs_order):
+		if not item.matches(item_id, order_id, payload_match):
 			continue
 		var dist := absi(item.cell.x - near.x) + absi(item.cell.y - near.y)
 		if dist < best_dist:

@@ -6,6 +6,8 @@ extends Resource
 @export var id: StringName = &""
 @export var display_name: String = ""
 @export var scene: PackedScene
+## Catalog icon (filled from the kit's isometric renders).
+@export var icon_path := ""
 ## Fallback footprint, used when [member auto_footprint] is off or the model
 ## cannot be measured.
 @export var footprint: Vector2i = Vector2i.ONE

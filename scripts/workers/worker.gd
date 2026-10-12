@@ -151,13 +151,23 @@ func accept(new_job: Job) -> void:
 
 ## Removed from the kitchen: drop what we hold and give up our job.
 func despawn() -> void:
+	force_idle()
+	queue_free()
+
+
+## Drops anything carried, forgets the current job and goes idle (used when the
+## world is reset between test scenarios).
+func force_idle() -> void:
 	if _carrying != null:
 		service.drop_carried(_carrying, cell)
 		_carrying = null
 	if job != null:
-		service.fail_job(job, "its worker post was removed")
+		service.board.cancel(job, "reset")
 		job = null
-	queue_free()
+	state = State.IDLE
+	_path = []
+	_path_index = 0
+	_cell_ticks = 0
 
 
 ## Plans a walk to a cell next to [param target_cell].

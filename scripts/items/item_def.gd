@@ -18,6 +18,8 @@ extends Resource
 @export var extra_from_payload: StringName = &""
 ## Colour multiplied over the base mesh (used for the dirty tray).
 @export var tint := Color.WHITE
+## 64x64 preview used on order cards (filled from the food kit renders).
+@export var preview_path := ""
 ## Base ingredients are taken from a station with [member source_tag].
 @export var is_base := false
 @export var source_tag: StringName = &"storage"

@@ -11,9 +11,10 @@ extends Resource
 ## Item produced, and how many.
 @export var output: StringName = &""
 @export var output_amount := 1
-## Each input: {item: StringName, amount: int, needs_order: bool}. When
-## needs_order is set the input must carry the same order payload (used for
-## "tray with order" so a tray is never plated with somebody else's dish).
+## Each input: {item: StringName, amount: int, payload_match: Dictionary}.
+## A payload_match value may be "$order" (the job's order id) or a literal such
+## as a dish variant id; the item must carry matching payload values.
+## Legacy {needs_order: true} is normalised to {"order": "$order"}.
 @export var inputs: Array = []
 ## Station capability required (matches FurnitureDef.tags / structural points).
 @export var station_tag: StringName = &""
@@ -24,8 +25,20 @@ extends Resource
 ## Source recipes are pulled from a storage station instead of being crafted.
 @export var is_source := false
 ## How the output gets its payload: "" (none), "order" (stamp the job's order),
-## "order_dish" (copy the needs_order input's payload and add the dish).
+## "order_dish" (copy the needs-order input's payload and record the dish/adds).
 @export var stamp: StringName = &""
+## Runtime recipe variants carry their id here; produced items are stamped with
+## payload["variant"] so only a matching dish can satisfy a modified order.
+@export var variant_id: StringName = &""
+
+
+## Normalised payload requirement of one input entry ({} = anything).
+static func payload_requirement(entry: Dictionary) -> Dictionary:
+	if entry.has("payload_match"):
+		return entry["payload_match"]
+	if entry.get("needs_order", false):
+		return {"order": "$order"}
+	return {}
 
 
 func input_ids() -> PackedStringArray:

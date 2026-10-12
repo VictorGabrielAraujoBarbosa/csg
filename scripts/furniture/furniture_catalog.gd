@@ -4,6 +4,7 @@ class_name FurnitureCatalog
 ## them in one script is the fastest thing to edit.
 
 const FURNITURE_DIR := "res://assets/kenney_furniture-kit/Models/GLTF format/"
+const ISOMETRIC_DIR := "res://assets/kenney_furniture-kit/Isometric/"
 
 static var _cache: Array[FurnitureDef] = []
 
@@ -60,6 +61,7 @@ static func _make(id: String, name: String, file: String, footprint: Vector2i, c
 	def.id = StringName(id)
 	def.display_name = name
 	def.scene = load(FURNITURE_DIR + file) as PackedScene
+	def.icon_path = ISOMETRIC_DIR + file.get_basename() + "_NE.png"
 	def.footprint = footprint
 	def.cost = cost
 	var tag_list: Array[StringName] = []

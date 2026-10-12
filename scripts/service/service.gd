@@ -10,6 +10,9 @@ extends Node3D
 
 signal warning(text: String)
 signal state_changed
+## Emitted after every simulation tick; the day controller listens to this so
+## arrivals and day-end checks are tick-driven and deterministic.
+signal tick_passed(tick: int)
 
 @export var kitchen: Kitchen
 
@@ -35,7 +38,6 @@ signal state_changed
 
 @export_group("Orders")
 @export var starting_trays := 3
-@export var spawn_start_order := true
 
 var items: ItemManager
 var orders: OrderManager
@@ -73,8 +75,6 @@ func _ready() -> void:
 	rebuild_stations()
 	_seed_trays()
 	_sync_workers()
-	if spawn_start_order:
-		request_order()
 
 
 func _process(delta: float) -> void:
@@ -98,6 +98,7 @@ func tick_once() -> void:
 		worker.tick(tick)
 	if ticks_per_second > 0 and tick % maxi(ticks_per_second * 2, 1) == 0:
 		_retry_unplannable()
+	tick_passed.emit(tick)
 	state_changed.emit()
 
 
@@ -134,8 +135,8 @@ func workers_busy() -> int:
 	return busy
 
 
-func request_order(dish: StringName = &"burger") -> Order:
-	return orders.spawn(dish)
+func request_order(dish: StringName = &"burger", adds: Array = [], removes: Array = []) -> Order:
+	return orders.spawn(dish, adds, removes)
 
 
 ## Every new order gets planned straight away; if that is impossible right now
@@ -217,20 +218,21 @@ func job_ready(job: Job) -> bool:
 
 ## The items that satisfy a produce job's inputs, or null if they are not all
 ## sitting on the station's input cells yet. Every item is one unit, so
-## "2 tomatoes" means two tomato items.
+## "2 tomatoes" means two tomato items. Payload requirements (order / dish
+## variant) are honoured.
 func gather_inputs(job: Job) -> Variant:
 	var order_id := job.order.id if job.order != null else -1
 	var found: Array = []
 	for entry in job.recipe.inputs:
 		var item_id: StringName = entry.get("item", &"")
 		var need := int(entry.get("amount", 1))
-		var needs_order: bool = entry.get("needs_order", false)
+		var match_rule := RecipeDef.payload_requirement(entry)
 		var collected: Array[WorldItem] = []
 		for cell in job.station.input_cells:
 			for item in items.items_at(cell):
 				if item.reserved_by != null and item.reserved_by != job:
 					continue
-				if item.matches(item_id, order_id, needs_order):
+				if item.matches(item_id, order_id, match_rule):
 					collected.append(item)
 					if collected.size() >= need:
 						break
@@ -238,7 +240,7 @@ func gather_inputs(job: Job) -> Variant:
 				break
 		if collected.size() < need:
 			return null
-		found.append({"items": collected, "amount": need, "needs_order": needs_order})
+		found.append({"items": collected, "amount": need, "payload_match": match_rule})
 	return found
 
 
@@ -321,8 +323,12 @@ func drop_carried(item: WorldItem, cell: Vector2i) -> void:
 	item.reserved_by = null
 
 
-## Payload stamping: "order" marks a tray with its order; "order_dish" copies
-## the order from the needs_order input and records which dish is on the tray.
+## Payload stamping.
+##  - "order": the item is marked with its order (packed trays).
+##  - "order_dish": the plated tray takes its order from the tray input, its
+##    dish/variant from the dish input and records the add-ons.
+##  - any recipe with [member RecipeDef.variant_id] stamps the variant, so only
+##    a matching dish can satisfy a modified order.
 func payload_for(job: Job, entries: Array) -> Dictionary:
 	var payload := {}
 	match String(job.recipe.stamp):
@@ -331,12 +337,51 @@ func payload_for(job: Job, entries: Array) -> Dictionary:
 				payload["order"] = job.order.id
 		"order_dish":
 			for entry in entries:
-				if entry.needs_order and not (entry.items as Array).is_empty():
+				var req := RecipeDef.payload_requirement(entry)
+				if req.has("order") and not (entry.items as Array).is_empty():
 					payload = ((entry.items as Array)[0] as WorldItem).payload.duplicate()
+			var dish_found := false
+			var adds := PackedStringArray()
 			for entry in entries:
-				if not entry.needs_order and not (entry.items as Array).is_empty():
-					payload["dish"] = ((entry.items as Array)[0] as WorldItem).def.id
+				if (entry.items as Array).is_empty():
+					continue
+				var item := (entry.items as Array)[0] as WorldItem
+				if item.def.id == &"tray_with_order":
+					continue
+				if not dish_found:
+					dish_found = true
+					payload["dish"] = item.def.id
+					payload["variant"] = item.payload.get("variant", "")
+				else:
+					adds.append(String(item.def.id))
+			payload["adds"] = adds
+	if job.recipe.variant_id != &"":
+		payload["variant"] = job.recipe.variant_id
 	return payload
+
+
+## Dry-run gate: can this kitchen serve the dish with these modifiers right now?
+## Returns an empty array when it can, or the reasons why not.
+func can_serve(dish: StringName, adds: Array = [], removes: Array = []) -> Array[String]:
+	var probe := Order.new()
+	probe.id = -1
+	probe.recipe_id = dish
+	for id: StringName in adds:
+		probe.adds.append(id)
+	for id: StringName in removes:
+		probe.removes.append(id)
+	var variant := RecipeCatalog.variant_of(dish, probe.removes)
+	probe.variant = variant.variant_id if variant != null else &""
+	planner.items = items
+	planner.stations = stations
+	planner.board = board
+	planner.warnings.clear()
+	planner.dry_run = true
+	var ok := planner.plan_order(probe, tick)
+	planner.dry_run = false
+	if ok:
+		return []
+	return planner.warnings.duplicate()
 
 
 # ---------------------------------------------------------------------------

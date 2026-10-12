@@ -290,6 +290,76 @@ func furniture_entry(inst: FurnitureInstance) -> Dictionary:
 	return {"id": inst.def.id, "cell": inst.anchor, "steps": inst.rot_steps, "tints": inst.tints.duplicate()}
 
 
+## Picks a placed piece up for rearranging: it leaves the occupancy map so the
+## placement rules no longer see it, and comes back on drop or cancel.
+func begin_grab(inst: FurnitureInstance) -> void:
+	if inst == null:
+		return
+	for c in inst.footprint_cells():
+		_furniture_by_cell.erase(c)
+
+
+func cancel_grab(inst: FurnitureInstance) -> void:
+	if inst == null:
+		return
+	for c in inst.footprint_cells():
+		_furniture_by_cell[c] = inst
+	_position_furniture(inst)
+
+
+## Moves a placed piece (after a drag-and-drop). Keeps occupancy, the layout
+## data and undo in sync.
+func move_furniture(inst: FurnitureInstance, anchor: Vector2i, steps: int, record := true) -> bool:
+	if data == null or inst == null:
+		return false
+	var from_anchor := inst.anchor
+	var from_steps := inst.rot_steps
+	# A grabbed piece is already out of the occupancy map; a registered one is not.
+	var was_registered: bool = _furniture_by_cell.get(from_anchor) == inst
+	for c in inst.footprint_cells():
+		_furniture_by_cell.erase(c)
+	if not can_place(inst.def, anchor, steps):
+		if was_registered:
+			for c in inst.footprint_cells():
+				_furniture_by_cell[c] = inst
+			_position_furniture(inst)
+		return false
+	inst.anchor = anchor
+	inst.rot_steps = steps
+	for c in inst.footprint_cells():
+		_furniture_by_cell[c] = inst
+	_position_furniture(inst)
+	_update_furniture_entry(inst, from_anchor, from_steps)
+	if record:
+		push_undo({
+			"type": "furniture_move", "id": inst.def.id,
+			"from": from_anchor, "from_steps": from_steps,
+			"to": anchor, "to_steps": steps,
+		})
+	layout_edited.emit()
+	return true
+
+
+func _update_furniture_entry(inst: FurnitureInstance, from_anchor: Vector2i, from_steps: int) -> void:
+	for i in range(data.furniture.size()):
+		var e: Dictionary = data.furniture[i]
+		if e.get("id") == inst.def.id and e.get("cell") == from_anchor and e.get("steps") == from_steps:
+			data.furniture[i] = furniture_entry(inst)
+			return
+	data.furniture.append(furniture_entry(inst))
+
+
+func _position_furniture(inst: FurnitureInstance) -> void:
+	var off := inst.def.cell_center_offset(inst.rot_steps)
+	inst.position = cell_to_world(inst.anchor) + Vector3(off.x, 0.0, off.y)
+	inst.rotation_degrees = Vector3(0.0, inst.rot_steps * 90.0 + inst.def.yaw_offset_deg, 0.0)
+
+
+## Re-applies a piece's own tints (used after a ghost-tinted drag).
+func refresh_furniture_tints(inst: FurnitureInstance) -> void:
+	_apply_furniture_tints(inst)
+
+
 func _place_furniture_raw(def: FurnitureDef, anchor: Vector2i, steps: int, tints: Dictionary) -> FurnitureInstance:
 	_ensure_furniture_root()
 	var inst := FurnitureInstance.new()
@@ -542,6 +612,10 @@ func _undo_one(entry: Dictionary) -> bool:
 				inst2.set_tint(entry.get("material", "*"), entry.old)
 				_apply_furniture_tints(inst2)
 				_sync_furniture_entry(inst2)
+		"furniture_move":
+			var moved: FurnitureInstance = _furniture_by_cell.get(entry.to)
+			if moved != null and moved.def.id == entry.id:
+				move_furniture(moved, entry.from, entry.from_steps, false)
 		"batch":
 			for action in entry.get("actions", []):
 				_undo_one(action)

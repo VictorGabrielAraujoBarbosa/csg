@@ -6,12 +6,13 @@ the customers stop waiting and come for you.
 
 Built with **Godot 4.7** (GL Compatibility renderer) using the Kenney CC0 3D kits.
 
-> **Status: Prototype 3 — the chibis run the kitchen.** Grid, map authoring, furniture,
-> colouring, look & feel and the full order pipeline are in: recipes, recursive job planning,
-> a finite tray pool that cycles through the kitchen, money and warnings. The simulation is
-> deterministic (fixed ticks), presentation interpolates in real time, and three toilet-shaped
-> chibi workers walk the grid, operate stations and carry items (placeholder mesh).
-> See [Roadmap](#roadmap) and [Not implemented yet](#not-implemented-yet).
+> **Status: Prototype 4 — build phase & day phase.** Grid, map authoring, furniture, colouring,
+> look & feel and the full order pipeline are in: recipes, recursive job planning, a finite tray
+> pool that cycles through the kitchen, deterministic tick simulation and toilet-shaped chibi
+> workers. The gameplay layer on top is now playable: build your kitchen from a catalog, start
+> the day, serve the order cards (with modifiers like "no cheese" or "with fries") before the
+> queue or the clock gets you, then take the money back to the build phase. See
+> [Roadmap](#roadmap) and [Not implemented yet](#not-implemented-yet).
 
 ---
 
@@ -177,6 +178,25 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
   nothing ever overlaps or hides behind something else. `ItemManager.MAX_SLOTS_PER_CELL` is the
   hook for limiting capacity later.
 
+## The day loop (build → day → summary)
+
+- **Build phase**: the kitchen fills the screen. Rearrange appliances (LMB picks one up — it
+  hovers and lags behind the mouse with inertia; LMB drops it, RMB puts it back) and buy new
+  ones from the temporary catalog panel. Money carries across days and starts at **$250**.
+- **Start Day** only works when the kitchen can actually make every dish *and modifier variant*
+  the day may ask for, with at least one worker post placed — otherwise the button says what is
+  missing.
+- **Day phase**: the kitchen viewport shrinks to the left with rounded corners over a dark
+  blueprint-dot background; order cards slide in from the top on the right with the dish photo
+  and its modifiers (`- no cheese`, `+ fries`). The reference layout lives in
+  `docs/day-phase-reference.png`.
+- **Schedule**: every day is generated from its day number and a seed, so days are reproducible.
+  Day 1 asks 3 orders over 60 s; each later day adds one order and 12 s. No arrivals after the
+  last planned slot — the day only extends while orders are still pending, and it ends once the
+  last one is served.
+- **Losing a day**: more than 5 pending orders, or any order older than 60 s. (The customers
+  breaking in and eating you is the horror step, not in yet.)
+
 ## Simulation & presentation
 
 The simulation is **tick-based and deterministic**: everything timed (recipes, walking, order
@@ -196,17 +216,19 @@ presentation. Animations must stay in real time; never tie smoothness to the tic
 
 ## Not implemented yet
 
-- Order arrivals by day timestamps, per-second chance rolls, periodic top-ups (only "one at
-  start" and "one on every turn-in" exist).
-- Losing the run: queue overflow past `max_pending`, and the per-order `time_limit` (the data
-  exists and orders fail on timeout, but there is no game-over flow yet).
+- Per-second arrival chance rolls and mid-day top-ups: a day's arrivals are all planned up front
+  from (day, seed) and nothing is added after the last slot.
+- Losing the **run**: a day can be lost (queue overflow past `max_pending` or an order older
+  than `time_limit`), but there is no game-over flow yet — you just take the loss and build again.
+- Selling appliances (buying works; RMB deletes for free, no refunds).
 - Async stations (oven, deep pot) that work without a worker, progress bars, and burning food
-  left too long.
+  left too long. Modifiers are recipe variants only — `+ fries` is fetched from storage, there
+  is no fryer station yet.
 - Finite food stock and purchasing (base ingredients are infinite), buying more trays.
 - Worker limitations: workers can share a cell (no collision between them) and carry exactly
   one item at a time. Worker types/skills are not implemented — `Service.assignment_cost()` is
   the seam where they will change who takes which job.
-- The "customers break in and eat you" horror event, day cycle, synergies, audio.
+- The "customers break in and eat you" horror event, synergies, audio, save/load.
 
 ## Development tools
 
@@ -237,11 +259,16 @@ useful when adding per-material colour support for a new piece.
 
 ## Assets
 
-Kenney 3D kits, all CC0: [Building Kit](https://kenney.nl/assets/building-kit),
+Kenney CC0 kits: [Building Kit](https://kenney.nl/assets/building-kit),
 [Furniture Kit](https://kenney.nl/assets/furniture-kit),
 [Food Kit](https://kenney.nl/assets/food-kit),
-[Retro Urban Kit](https://kenney.nl/assets/retro-urban-kit). Assets are used as-is; all
-colouring and the checkerboard are runtime material tints.
+[Retro Urban Kit](https://kenney.nl/assets/retro-urban-kit),
+[UI Pack](https://kenney.nl/assets/ui-pack),
+[UI Pack Adventure](https://kenney.nl/assets/ui-pack-adventure),
+[Game Icons](https://kenney.nl/assets/game-icons) + expansion,
+[Interface Sounds](https://kenney.nl/assets/interface-sounds). Assets are used as-is: all
+colouring and the checkerboard are runtime material tints, dish photos are the food kit's
+64×64 preview renders and catalog icons are the furniture kit's isometric renders.
 
 ## Roadmap
 
@@ -249,7 +276,8 @@ colouring and the checkerboard are runtime material tints.
 2. ~~Orders, recipes, recursive job planning, the tray cycle, tick simulation~~ ✅
 3. ~~Chibi workers: grid pathfinding, work loop, carrying, placed as furniture with spawn
    posts~~ ✅ (mesh is still a toilet)
-4. Build phase & economy: money UI, buy/sell, day cycle, end-of-day summary
-5. Stations & orders polish: async stations (oven/pot) with progress and burning, order queue
-   rules (timed/chance arrivals, losing on overflow or timeout)
-6. The horror: customers break in and eat you, day cycle pressure, synergies, audio, polish
+4. ~~Build phase & day phase: buy catalog, seeded day schedules, order modifiers, order-card UI,
+   day win/loss, money, drag-and-drop rearranging~~ ✅
+5. Economy & stations polish: selling, day-start shop stock, async stations (oven/pot) with
+   progress and burning, modifiers that need stations (fries/fryer), queue-pressure tuning
+6. The horror: customers break in and eat you, synergies, audio, real character art, polish

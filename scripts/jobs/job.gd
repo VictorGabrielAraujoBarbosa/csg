@@ -25,6 +25,9 @@ var order: Order
 # TRANSFER
 var item: WorldItem
 var target_cell := Vector2i.ZERO
+## Items a PRODUCE job is holding for its own inputs (e.g. something already
+## sitting on the station, reserved so nobody carries it away).
+var reserved_items: Array[WorldItem] = []
 
 var parent: Job
 var location := Vector2i.ZERO

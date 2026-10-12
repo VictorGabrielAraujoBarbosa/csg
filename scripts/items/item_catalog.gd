@@ -3,6 +3,7 @@ class_name ItemCatalog
 ## kit (scale ~0.3 to match our 1 m world), trays are re-used tableware.
 
 const FOOD_DIR := "res://assets/kenney_food-kit/Models/GLB format/"
+const FOOD_PREVIEWS := "res://assets/kenney_food-kit/Previews/"
 ## Cartoon-big food so it reads clearly from the game camera (the kit is
 ## modelled at ~3.3 units/m, so 0.7 gives a ~28 cm burger).
 const FOOD_SCALE := 0.7
@@ -43,6 +44,8 @@ static func _build() -> void:
 	_add("lettuce", "Lettuce", "cabbage.glb", true)
 	_add("tomato", "Tomato", "tomato.glb", true, &"", {"scale": 1.2})
 	_add("cheese", "Cheese", "cheese.glb", true)
+	_add("fries", "Fries", "fries.glb", true)
+	_add("sauce", "Sauce", "soy.glb", true)
 	# Made ingredients.
 	_add("patty_cooked", "Cooked Patty", "meat-cooked.glb", false)
 	_add("cheese_slice", "Cheese Slice", "cheese-cut.glb", false)
@@ -72,6 +75,7 @@ static func _add(id: String, name: String, file: String, is_base: bool, tag := &
 	def.id = StringName(id)
 	def.display_name = name
 	def.scene = load(FOOD_DIR + file) as PackedScene
+	def.preview_path = FOOD_PREVIEWS + file.get_basename() + ".png"
 	def.scale_mult = extra.get("scale", FOOD_SCALE)
 	def.is_base = is_base
 	def.tag = tag

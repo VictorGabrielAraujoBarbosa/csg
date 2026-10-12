@@ -2,11 +2,12 @@ extends Node3D
 ## Wires the demo kitchen together and shows the control hints.
 ## M switches between furniture placement and map painting.
 
-@onready var kitchen: Kitchen = $Kitchen
-@onready var camera_rig: CameraRig = $CameraRig
-@onready var placer: PlaceController = $PlaceController
-@onready var map_editor: MapPaintController = $MapPaintController
-@onready var hint: Label = $UI/Hint
+@onready var kitchen: Kitchen = $World/Kitchen
+@onready var camera_rig: CameraRig = $World/CameraRig
+@onready var placer: PlaceController = $World/PlaceController
+@onready var map_editor: MapPaintController = $World/MapPaintController
+@onready var day: DayController = $World/DayController
+@onready var hint: Label = $UI/DevHud/Hint
 
 
 func _ready() -> void:
@@ -38,7 +39,7 @@ func _update_hint() -> void:
 			]
 		lines.append("FURNITURE  —  %s" % item)
 		lines.append("1-9 pick | Tab next | R rotate | LMB place | RMB remove | M map edit")
-	lines.append("WASD pan | Q/E turn camera | wheel zoom | G grid | F5 export layout text")
+	lines.append("WASD pan | Q/E turn camera | wheel zoom | G grid | N day | F5 export layout text")
 	hint.text = "\n".join(lines)
 
 
@@ -56,9 +57,33 @@ func _unhandled_input(event: InputEvent) -> void:
 			kitchen.set_grid_visible(not kitchen.is_grid_visible())
 		KEY_F5:
 			_export_layout()
+		KEY_N:
+			_advance_day()
 		KEY_Z:
 			if key.ctrl_pressed:
 				kitchen.undo()
+
+
+## Dev shortcut until the build/day UI exists: N starts the next day (or leaves
+## the summary screen).
+func _advance_day() -> void:
+	match day.phase:
+		DayController.Phase.BUILD:
+			var reasons := day.can_start_day()
+			if reasons.is_empty():
+				day.start_day()
+			else:
+				for text in reasons:
+					service_warning(text)
+		DayController.Phase.SUMMARY:
+			day.finish_day()
+
+
+func service_warning(text: String) -> void:
+	var service := get_node_or_null("World/Service") as Service
+	if service != null:
+		service.emit_warning(text)
+	print("[day] ", text)
 
 
 func _export_layout() -> void:
