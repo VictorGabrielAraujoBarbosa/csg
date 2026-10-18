@@ -131,6 +131,12 @@ func can_start_day() -> Array[String]:
 		return ["no service"]
 	if service.workers.is_empty():
 		reasons.append("no worker post placed")
+	# A day is only winnable if the tray cycle can close: the dry run plans each
+	# order on its own, finds a free tray and never needs the wash, so a kitchen
+	# with no sink passed the gate and then strangled itself once the pool ran
+	# out. Trays come back only through a washing station.
+	if not _has_station_tag(&"washing"):
+		reasons.append("no washing station: dirty trays can never come back")
 	var preview := _make_plan(day + 1)
 	for arrival: Dictionary in preview.arrivals:
 		for text: String in service.can_serve(arrival["dish"], arrival["adds"], arrival["removes"]):
@@ -249,6 +255,13 @@ func _scripted_plan(day_number: int) -> DayPlan:
 			"removes": entry.get("removes", []),
 		})
 	return plan
+
+
+func _has_station_tag(tag: StringName) -> bool:
+	for station in service.stations:
+		if station.has_tag(tag):
+			return true
+	return false
 
 
 ## One line for the summary card, foreshadowing what the next day brings.

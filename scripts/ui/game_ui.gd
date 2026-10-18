@@ -55,6 +55,8 @@ var _shop_category: StringName = &""
 var _summary: PanelContainer
 var _summary_label: Label
 var _cards: Dictionary = {}
+## Order id -> the countdown label on its card.
+var _card_timers: Dictionary = {}
 var _horror_running := false
 ## Who owns the shop status line ("afford" / "hint"), so it can be cleared safely.
 var _status_owner := ""
@@ -69,6 +71,25 @@ var _streams: Dictionary = {}
 ## the hovered piece has not changed.
 func _process(_delta: float) -> void:
 	_update_work_markers()
+	_update_order_timers()
+
+
+## How long each order has left before it costs the day. The limit lives on the
+## day controller; the clock is the simulation tick.
+func _update_order_timers() -> void:
+	if service == null or day == null or _card_timers.is_empty():
+		return
+	var limit := float(day.order_time_limit_ticks)
+	var tps := maxf(float(service.ticks_per_second), 1.0)
+	for order in service.orders.active_orders():
+		var label := _card_timers.get(order.id) as Label
+		if label == null or not is_instance_valid(label):
+			continue
+		var left := limit - float(service.tick - order.created_tick)
+		var seconds := maxi(int(ceil(left / tps)), 0)
+		label.text = "%ds" % seconds
+		label.add_theme_color_override("font_color",
+			Color(1.0, 0.35, 0.3) if left < limit * 0.25 else Color(0.75, 0.82, 0.92))
 
 
 func _ready() -> void:
@@ -498,6 +519,7 @@ func _on_order_completed(order: Order) -> void:
 	if wrap == null:
 		return
 	_cards.erase(order.id)
+	_card_timers.erase(order.id)
 	var card := wrap.get_child(0) as Control
 	if card != null:
 		var tween := create_tween().set_parallel()
@@ -511,6 +533,7 @@ func _clear_cards() -> void:
 	for wrap: Control in _cards.values():
 		wrap.queue_free()
 	_cards.clear()
+	_card_timers.clear()
 
 
 func _add_card(order: Order) -> void:
@@ -534,10 +557,18 @@ func _add_card(order: Order) -> void:
 	var info := VBoxContainer.new()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(info)
+	var header := HBoxContainer.new()
+	info.add_child(header)
 	var title := Label.new()
 	title.text = order.dish_name
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_size_override("font_size", 17)
-	info.add_child(title)
+	header.add_child(title)
+	var timer := Label.new()
+	timer.name = "Timer"
+	timer.add_theme_font_size_override("font_size", 16)
+	header.add_child(timer)
+	_card_timers[order.id] = timer
 	for id: StringName in order.adds:
 		info.add_child(_modifier_row(id))
 	for id: StringName in order.removes:

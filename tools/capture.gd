@@ -1054,6 +1054,23 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		# --- the Start Day gate ---
 		_expect(service.can_serve(&"burger", [], []).is_empty(),
 			"gate: the demo kitchen can serve a plain burger")
+		# Without a sink the tray pool can never refill: the day would start and
+		# then soft-lock, so the gate has to refuse it.
+		var gate_day := scene.find_child("DayController", true, false) as DayController
+		var sink_cell := Vector2i(4, 1)
+		var sink_inst := kitchen.furniture_at(sink_cell)
+		_expect(sink_inst != null and sink_inst.def.has_tag(&"washing"), "gate: the demo kitchen has a sink")
+		kitchen.remove_furniture_at(sink_cell)
+		service.rebuild_stations()
+		var no_sink := gate_day.can_start_day()
+		var mentions_washing := false
+		for text in no_sink:
+			if text.contains("washing"):
+				mentions_washing = true
+		_expect(mentions_washing, "gate: a kitchen with no sink is refused (the tray cycle cannot close)")
+		kitchen.place_furniture(sink_inst.def, sink_cell, 0)
+		service.rebuild_stations()
+		_expect(gate_day.can_start_day().is_empty(), "gate: putting the sink back clears the refusal")
 		_expect(not service.can_serve(&"burger", [&"add_fries"], [&"no_cheese"]).is_empty(),
 			"gate: a + fries order is blocked without a frying station")
 		var saved_stations := service.stations.duplicate()
