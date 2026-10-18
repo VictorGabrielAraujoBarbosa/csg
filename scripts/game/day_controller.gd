@@ -20,9 +20,9 @@ signal reasons_changed(reasons: Array)
 @export_group("Day schedule")
 ## Day 1 asks `base_orders` orders over `base_day_ticks`; later days add more.
 @export var base_day_ticks := 600
-## Every day after the scripted opening adds one order but only this many ticks,
-## so the queue grows faster than any kitchen can clear it.
-@export var ticks_per_day_extra := 60
+## Every day after the scripted opening adds one order but no extra time: the
+## arrivals bunch up and the queue grows faster than any kitchen can clear it.
+@export var ticks_per_day_extra := 0
 @export var base_orders := 3
 @export var orders_per_day_extra := 1
 @export var max_modifiers := 2
@@ -33,9 +33,13 @@ signal reasons_changed(reasons: Array)
 ## Enough to buy the pieces a starter kitchen is missing — a sink, a shelf and
 ## a fridge are $320 of it — with a little left over to experiment.
 @export var starting_money := 400
-## An order waiting longer than this loses the day. Generous on purpose: the
-## demo should be lost to the queue piling up, not to one slow dish.
+## How long an order may wait on day one, and how much of that is taken away
+## every day after: the squeeze is felt as a tightening countdown, not just as a
+## longer queue.
 @export var order_time_limit_ticks := 800
+@export var order_time_limit_per_day := -70
+## Never go below this, or a single dish becomes impossible to serve at all.
+@export var order_time_limit_floor := 160
 
 @export_group("Horror")
 ## A lost day ends with the customers breaking in and eating the staff.
@@ -190,6 +194,8 @@ func start_day() -> bool:
 	loss_reason = ""
 	summary = {}
 	horror = false
+	order_time_limit_ticks = maxi(
+		order_time_limit_ticks + order_time_limit_per_day * (day - 1), order_time_limit_floor)
 	# A new day: the windows are repaired and the eaten staff is back on shift.
 	if kitchen != null:
 		kitchen.clear_broken_edges()
