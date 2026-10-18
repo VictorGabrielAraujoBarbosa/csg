@@ -512,7 +512,9 @@ func finish_transfer(job: Job) -> void:
 			plan_order(job.order)
 		return
 	items.finish_carry(item, job.target_cell, kitchen.surface_height(job.target_cell))
-	item.reserved_by = null
+	# The item was fetched FOR a consumer: it stays held for it, or another
+	# order's job can take it off the station and the consumer starves.
+	item.reserved_by = job.parent if _job_alive(job.parent) else null
 	job.state = Job.State.DONE
 	item_dropped.emit(item, job.target_cell)
 	_log("carried %s -> %s" % [item.def.id, job.target_cell])
@@ -573,9 +575,9 @@ func fail_job(job: Job, reason: String) -> void:
 		plan_order(job.order)
 
 
-func drop_carried(item: WorldItem, cell: Vector2i) -> void:
+func drop_carried(item: WorldItem, cell: Vector2i, keep_for: Job = null) -> void:
 	items.finish_carry(item, cell, kitchen.surface_height(cell))
-	item.reserved_by = null
+	item.reserved_by = keep_for if _job_alive(keep_for) else null
 
 
 ## Payload stamping.
