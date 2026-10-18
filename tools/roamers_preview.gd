@@ -64,19 +64,26 @@ func _ready() -> void:
 	if _sun != null:
 		_sun_resting = _sun.light_energy
 
-	# The game's own wiring: a child of World, found by tree search from there.
-	_roamers = load("res://scenes/roamers.tscn").instantiate() as Roamers
-	_world.add_child(_roamers)
+	# The game's own wiring: main.tscn's World/Roamers is already there, wired by
+	# path. Use it — the intro's reveal horde goes to that very node, so a second
+	# instance would put the crowd somewhere else entirely.
+	_roamers = _scene.find_child("Roamers", true, false) as Roamers
+	if _roamers == null:
+		_roamers = load("res://scenes/roamers.tscn").instantiate() as Roamers
+		_roamers.name = "Roamers"
+		_world.add_child(_roamers)
 	await _settle(3)
 
 	_check_wiring()
 	_check_schedule()
 	await _check_auto_follow()
 	await _check_perimeter()
+	await _check_spawn_scatter()
 	await _check_determinism()
 	await _check_walk_and_peek()
 	await _check_clear_and_mob()
 	await _check_start_map()
+	await _check_intro()
 
 	print("[preview] %s (%d failures)" % ["FAIL" if _failures > 0 else "ok", _failures])
 	get_tree().quit(1 if _failures > 0 else 0)
@@ -96,19 +103,20 @@ func _check_wiring() -> void:
 
 func _check_schedule() -> void:
 	_expect(_roamers.roamers_for_day(1) == 0, "schedule: day 1 brings nobody")
-	_expect(_roamers.roamers_for_day(2) == 1, "schedule: day 2 brings 1")
-	_expect(_roamers.roamers_for_day(3) == 2, "schedule: day 3 brings 2")
-	_expect(_roamers.roamers_for_day(4) == 3, "schedule: day 4 brings 3")
-	_expect(_roamers.roamers_for_day(9) == 3, "schedule: later days stay at 3 (clamped)")
+	_expect(_roamers.roamers_for_day(2) == 2, "schedule: day 2 brings 2")
+	_expect(_roamers.roamers_for_day(3) == 4, "schedule: day 3 brings 4")
+	_expect(_roamers.roamers_for_day(4) == 6, "schedule: day 4 brings 6")
+	_expect(_roamers.roamers_for_day(5) == 8, "schedule: day 5 brings 8")
+	_expect(_roamers.roamers_for_day(9) == 8, "schedule: later days stay at 8 (clamped)")
 
 
 ## The day phase starts them on its own (no manual call), through the real
 ## [signal DayController.phase_changed] signal.
 func _check_auto_follow() -> void:
+	var saved := _roamers.roamers_by_day
 	var counts: Array[int] = []
 	counts.append(1)
 	counts.append(2)
-	counts.append(3)
 	_roamers.roamers_by_day = counts
 	_day.start_day()
 	await _settle(2)
@@ -117,11 +125,12 @@ func _check_auto_follow() -> void:
 	_roamers.stop()
 	await _settle(2)
 	_expect(_roamers.active_count() == 0, "auto: stop() clears them")
+	_roamers.roamers_by_day = saved
 
 
 func _check_perimeter() -> void:
 	var spawned := _roamers.start_day(4)
-	_expect(spawned == 3, "spawn: day 4 brings 3 roamers (got %d)" % spawned)
+	_expect(spawned == 6, "spawn: day 4 brings 6 roamers (got %d)" % spawned)
 	_expect(_roamers.faces.size() >= 2, "perimeter: %d outside wall face(s) with windows"
 		% _roamers.faces.size())
 	# Every patrol point and every peek point must be outside the building.
@@ -171,22 +180,82 @@ func _check_perimeter() -> void:
 
 
 ## "Seeded RNG so the same day looks the same": the spawn points of one day are
-## identical on every call.
+## identical on every call, and another seed moves the crowd. Read straight after
+## the spawn (a settle would let them take a step and blur the comparison).
 func _check_determinism() -> void:
+	_roamers.start_count(6, 4242)
 	var first: Array[Vector3] = []
 	for roamer in _roamers.roamers:
 		first.append(roamer.global_position)
-	_roamers.start_day(4)
-	await _settle(2)
+	_roamers.start_count(6, 4242)
 	var again: Array[Vector3] = []
 	for roamer in _roamers.roamers:
 		again.append(roamer.global_position)
-	var same := first.size() == again.size()
+	var same := first.size() == again.size() and first.size() == 6
 	if same:
 		for i in first.size():
 			if first[i].distance_to(again[i]) > 0.001:
 				same = false
-	_expect(same, "determinism: day 4 spawns the same roamers in the same places")
+	_expect(same, "determinism: the same count and seed put 6 roamers in the same places")
+	# A different seed is a different crowd (the scatter is seeded, not fixed).
+	_roamers.start_count(6, 777)
+	var moved := 0
+	for i in mini(first.size(), _roamers.roamers.size()):
+		if first[i].distance_to(_roamers.roamers[i].global_position) > 0.05:
+			moved += 1
+	_expect(moved >= 3, "determinism: another seed puts the crowd somewhere else (%d of %d moved)"
+		% [moved, first.size()])
+	await _settle(2)
+
+
+## The scatter itself: a crowd never lands on one lattice point, never shares a
+## spot, and never all walks or bobs at the same rate.
+func _check_spawn_scatter() -> void:
+	var spawned := _roamers.start_count(8, 424242)
+	_expect(spawned == 8, "scatter: start_count(8) puts 8 roamers out (got %d)" % spawned)
+	var worst := 1.0e30
+	var closest := ""
+	for i in _roamers.roamers.size():
+		for j in range(i + 1, _roamers.roamers.size()):
+			var a := _roamers.roamers[i]
+			var b := _roamers.roamers[j]
+			var gap := a.global_position.distance_to(b.global_position)
+			if gap < worst:
+				worst = gap
+				closest = "%s/%s" % [a.name, b.name]
+	print("[preview] scatter: closest pair %s at %.3f m" % [closest, worst])
+	_expect(worst > 0.5, "scatter: no two roamers spawn on the same spot (closest %.3f m)" % worst)
+	# Not on the patrol lattice: most spawns sit off every patrol point.
+	var off_lattice := 0
+	var drift := 0.0
+	for roamer in _roamers.roamers:
+		var best := 1.0e30
+		for point in roamer.patrol:
+			best = minf(best, roamer.global_position.distance_to(point))
+		drift = maxf(drift, best)
+		if best > 0.1:
+			off_lattice += 1
+	print("[preview] scatter: %d of %d spawns sit off the patrol points (worst offset %.2f m)"
+		% [off_lattice, _roamers.roamers.size(), drift])
+	_expect(off_lattice >= 6, "scatter: the crowd is scattered, not latticed (%d of %d off-lattice)"
+		% [off_lattice, _roamers.roamers.size()])
+	# Every roamer keeps its own walk/bob rate and its own phase.
+	var speeds: Array[float] = []
+	var hops: Array[float] = []
+	for roamer in _roamers.roamers:
+		speeds.append(roamer.speed_scale)
+		hops.append(roamer.hop_scale)
+	var speed_spread: float = speeds.max() - speeds.min()
+	var hop_spread: float = hops.max() - hops.min()
+	print("[preview] scatter: speed %.3f..%.3f, hop rate x%.3f..%.3f"
+		% [speeds.min(), speeds.max(), hops.min(), hops.max()])
+	_expect(speed_spread > 0.05, "scatter: the roamers walk at different speeds (spread %.3f)" % speed_spread)
+	_expect(hop_spread > 0.05, "scatter: the roamers bob out of step (spread %.3f)" % hop_spread)
+	# And every spawn is outside the building (nothing lands in a room).
+	for roamer in _roamers.roamers:
+		var cell := _kitchen.world_to_cell(roamer.global_position)
+		_expect(not _kitchen.has_floor(cell), "scatter: %s spawns outside the building at %s"
+			% [roamer.name, cell])
 
 
 func _check_walk_and_peek() -> void:
@@ -209,7 +278,7 @@ func _check_walk_and_peek() -> void:
 		var screen := _cam.unproject_position(roamer.global_position + Vector3.UP * 0.6)
 		if _greenest_around(wide, screen, 16) > 0.12:
 			visible += 1
-	_expect(visible >= 2, "render: %d of %d roamers show as green shapes outside the wall"
+	_expect(visible >= 3, "render: %d of %d roamers show as green shapes outside the wall"
 		% [visible, _roamers.roamers.size()])
 	var green_wide := _green_pixels(wide)
 	_expect(green_wide > 20, "render: the wide frame has green in it (%d samples)" % green_wide)
@@ -260,7 +329,7 @@ func _check_walk_and_peek() -> void:
 func _check_clear_and_mob() -> void:
 	_roamers.start_day(4)
 	await _settle(2)
-	_expect(_roamers.active_count() == 3, "mob: the roamers are out again")
+	_expect(_roamers.active_count() == 6, "mob: the roamers are out again")
 	_service.mob_started.emit([])
 	await _settle(3)
 	_expect(_roamers.active_count() == 0, "mob: they are gone the moment the mob breaks in")
@@ -300,7 +369,7 @@ func _check_start_map() -> void:
 	_world.add_child(extra)
 	await _settle(2)
 	var spawned := extra.start_day(4)
-	_expect(spawned == 3, "start map: 3 roamers out (got %d)" % spawned)
+	_expect(spawned == 6, "start map: 6 roamers out (got %d)" % spawned)
 	_expect(extra.faces.size() >= 2, "start map: %d outside wall face(s) with windows"
 		% extra.faces.size())
 	var total := 0
@@ -321,6 +390,240 @@ func _check_start_map() -> void:
 	extra.queue_free()
 	start_kitchen.queue_free()
 	await _settle(2)
+
+
+## The intro's two new beats, played for real through the game UI: the tight
+## shrine framing for card 2 and the customers filling the windows for card 4.
+## Also proves the guard (nothing spawns while the menu is up) and the fallback
+## (a venue without a shrine skips the beat instead of aiming at nothing).
+func _check_intro() -> void:
+	var ui := _scene.get_node_or_null("UI")
+	var intro := ui.intro as IntroSequence if ui != null else null
+	if ui == null or intro == null:
+		_expect(false, "intro: the UI carries the intro sequence")
+		return
+	# Nothing may spawn while the menu is up: the guard in _spawn_horde.
+	intro._spawn_horde()
+	await _settle(2)
+	_expect(_roamers.active_count() == 0, "intro: no horde while the menu is up (%d out)"
+		% _roamers.active_count())
+	# The intro plays in the build phase, with the kitchen fullscreen and the
+	# camera at its authored yaw (the day checks above left the game mid-day and
+	# the camera turned to look at the north-west walls).
+	_day.phase = DayController.Phase.BUILD
+	_day.phase_changed.emit(_day.phase)
+	_rig._yaw_deg = 0.0
+	await _settle(2)
+	# The venue the game really plays: the shrine lives in the start map.
+	_kitchen.load_layout("res://resources/layouts/start_kitchen.txt")
+	await _settle(2)
+	ui.start_game(false)
+	var shrine := _shrine_instance()
+	if shrine == null:
+		_expect(false, "intro: the start map places a corporate_shrine")
+		return
+	var shrine_pos := shrine.global_position
+
+	# --- card 2: the tight shrine beat ------------------------------------
+	var got_card2 := await _wait_for_card(intro, 1, 25.0)
+	_expect(got_card2, "intro: card 2 (the apps went to war) comes up")
+	_expect(str(intro.beat) == "card", "intro: card 2 is up (beat %s)" % str(intro.beat))
+	_expect(intro.shrine_cell == shrine.anchor, "intro: the beat found the shrine at %s (got %s)"
+		% [shrine.anchor, intro.shrine_cell])
+	_expect(absf(_rig._distance - intro.shrine_distance) < 0.4,
+		"intro: the camera zoomed in on the display (%.2f m, wanted %.2f)"
+			% [_rig._distance, intro.shrine_distance])
+	_expect(_rig._focus.distance_to(Vector3(shrine_pos.x, 0.0, shrine_pos.z)) < 0.3,
+		"intro: the camera frames the display (off by %.2f m)"
+			% _rig._focus.distance_to(Vector3(shrine_pos.x, 0.0, shrine_pos.z)))
+	var card2: Image = await _shot("intro_card2_shrine")
+	_expect(_mascot_pixels(card2) > 400, "intro: the two mascots are visible in the card-2 frame (%d px)"
+		% _mascot_pixels(card2))
+
+	# --- card 4: the reveal -----------------------------------------------
+	var got_card4 := await _wait_for_card(intro, 3, 25.0)
+	_expect(got_card4, "intro: card 4 (sales are up) comes up")
+	_expect(bool(intro.horde_spawned), "intro: the horde is out for the reveal")
+	_expect(_roamers.active_count() == int(intro.horde_count),
+		"intro: %d customers crowd the windows (got %d)"
+			% [int(intro.horde_count), _roamers.active_count()])
+	var reveal: Image = await _shot("intro_card4_reveal")
+	print("[preview] intro: %d of %d customers show as green in the card-4 frame"
+		% [_visible_roamers(reveal), _roamers.roamers.size()])
+	# The customers reach the glass while the card is up: wait for the leaning.
+	var peeking := await _wait_for_peek(6, 10.0)
+	_expect(peeking >= 6, "intro: the customers lean in at the glass (%d)" % peeking)
+	var worst := 1.0e30
+	var pair := ""
+	for i in _roamers.roamers.size():
+		for j in range(i + 1, _roamers.roamers.size()):
+			var a := _roamers.roamers[i]
+			var b := _roamers.roamers[j]
+			if not a.is_peeking() or not b.is_peeking():
+				continue
+			var gap := a.global_position.distance_to(b.global_position)
+			if gap < worst:
+				worst = gap
+				pair = "%s/%s" % [a.name, b.name]
+	_expect(worst > 0.25, "intro: two peeking customers keep their distance (closest %s %.3f m)"
+		% [pair, worst])
+	var settled: Image = await _shot("intro_card4_peek")
+	print("[preview] intro: %d of %d customers show as green in the settled card-4 frame"
+		% [_visible_roamers(settled), _roamers.roamers.size()])
+
+	# --- the skip clears the horde ----------------------------------------
+	ui.cutscene.request_skip()
+	var guard := 0.0
+	while guard < 6.0 and bool(intro.running):
+		await _wait_seconds(0.05)
+		guard += 0.05
+	_expect(not bool(intro.running), "intro: a skip ends the sequence")
+	_expect(_roamers.active_count() == 0, "intro: the horde is cleared when the intro ends (%d out)"
+		% _roamers.active_count())
+	_expect(not bool(intro.horde_spawned), "intro: the reveal is marked as over")
+	_expect(ui._top_bar.visible, "intro: skipping hands the UI back")
+
+	# The natural end (no skip) clears the horde the same way.
+	intro._spawn_horde()
+	await _settle(2)
+	_expect(_roamers.active_count() == 8, "intro: the horde can be put out again (%d)"
+		% _roamers.active_count())
+	intro._finish(null)
+	await _settle(2)
+	_expect(_roamers.active_count() == 0, "intro: the natural end clears the horde too")
+
+	# --- the same horde again, outside the cutscene: the clean picture ----
+	await _shoot_horde_windows(intro)
+
+	# --- the fallback: a venue without a shrine ---------------------------
+	_kitchen.load_layout("res://resources/layouts/demo_kitchen.txt")
+	await _settle(2)
+	_expect(_shrine_instance() == null, "intro: the demo kitchen ships without a shrine")
+	var before := _rig._focus
+	var skipped := await intro._shrine_beat(ui.cutscene)
+	_expect(not skipped and _rig._focus.distance_to(before) < 0.01,
+		"intro: without a shrine the card-2 beat is skipped, not aimed at nothing")
+
+
+## The clean pictures of the reveal, with the intro's own horde (same count, same
+## seed) put out again after the cutscene and the gameplay UI hidden:
+##   horde_windows       from outside the busiest wall, where the wall hides
+##                       itself and the crowd at the glass is the subject;
+##   horde_reveal_frame  the intro's own card-4 framing, so the beat can be
+##                       judged without the card and the letterbox over it.
+func _shoot_horde_windows(intro: Node) -> void:
+	var count := int(intro.horde_count)
+	var seed := int(intro.horde_seed)
+	_expect(_roamers.start_count(count, seed) == count,
+		"horde: the intro's seed puts %d customers back out" % count)
+	_roamers.peek_now()
+	await _wait_for_peek(6, 10.0)
+	var ui := _scene.get_node_or_null("UI")
+	if ui != null and ui.has_method("_hide_gameplay_ui"):
+		ui.call("_hide_gameplay_ui")
+
+	var face := _busiest_facing_face(_all_faces())
+	var centre := _face_centre(face)
+	var normal: Vector3 = _roamers.faces[face]["normal"]
+	_rig._yaw_deg = rad_to_deg(atan2(normal.x, normal.z))
+	_rig.pitch_deg = 40.0
+	await _rig.focus_world(centre + normal * 0.4, 8.5, 0.05)
+	await _settle(4)
+	_roamers.peek_now()
+	await _wait_for_peek(5, 6.0)
+	await _wait_seconds(0.6)
+	var image := await _shot("horde_windows")
+	_rig.pitch_deg = 50.0
+	var green := _green_pixels(image)
+	var leaning := 0
+	for roamer in _roamers.roamers:
+		if roamer.is_peeking():
+			leaning += 1
+	print("[preview] horde: %d of %d customers show as green at the wall, %d leaning"
+		% [_visible_roamers(image), _roamers.roamers.size(), leaning])
+	_expect(green > 60, "horde: the wall is crowded with glowing customers (%d green samples)" % green)
+	_expect(leaning >= 5, "horde: the customers are leaning at the glass (%d)" % leaning)
+
+	# The beat's own framing, clean.
+	var door_cell: Vector2i = intro.call("_front_door_cell")
+	_rig._yaw_deg = 0.0
+	await _rig.focus_world(_kitchen.cell_to_world(door_cell), float(intro.door_distance), 0.05)
+	await _settle(4)
+	_roamers.peek_now()
+	await _wait_for_peek(4, 6.0)
+	var beat := await _shot("horde_reveal_frame")
+	var seen := _visible_roamers(beat, 24)
+	var beat_green := _green_pixels(beat)
+	print("[preview] horde: %d of %d customers project onto green in the card-4 framing (%d green samples)"
+		% [seen, _roamers.roamers.size(), beat_green])
+	_expect(beat_green >= 20,
+		"horde: the card-4 framing really shows the customers (%d green samples)" % beat_green)
+	if ui != null and ui.has_method("_restore_game_ui"):
+		ui.call("_restore_game_ui")
+
+
+## Every face index (the crowd is spread over all of them by now).
+func _all_faces() -> Array[int]:
+	var out: Array[int] = []
+	for i in _roamers.faces.size():
+		out.append(i)
+	return out
+
+
+func _mascot_pixels(image: Image) -> int:
+	var count := 0
+	for y in range(0, image.get_height(), 2):
+		for x in range(0, image.get_width(), 2):
+			var family := _family(image.get_pixel(x, y))
+			if family == "red" or family == "yellow":
+				count += 1
+	return count
+
+
+## How many roamers project onto a green pixel in [param image]. The radius is
+## generous because at the wide card-4 framing a customer is only a few pixels.
+func _visible_roamers(image: Image, radius := 16) -> int:
+	var seen := 0
+	for roamer in _roamers.roamers:
+		var screen := _cam.unproject_position(roamer.global_position + Vector3.UP * 0.6)
+		if _greenest_around(image, screen, radius) > 0.12:
+			seen += 1
+	return seen
+
+
+## Coarse colour family of a rendered pixel (same rules as the shrine preview).
+func _family(c: Color) -> String:
+	var hi := maxf(c.r, maxf(c.g, c.b))
+	var lo := minf(c.r, minf(c.g, c.b))
+	if hi < 0.16:
+		return "black"
+	if lo > 0.72 and hi - lo < 0.12:
+		return "white"
+	if c.r > 0.35 and c.r > c.g * 1.7 and c.r > c.b * 1.7:
+		return "red"
+	if c.r > 0.45 and c.g > 0.4 and c.b < c.g * 0.55 and c.r > c.b * 1.7:
+		return "yellow"
+	return "other"
+
+
+## The venue's corporate shrine, if it has one (the intro's card-2 subject).
+func _shrine_instance() -> FurnitureInstance:
+	for inst in _kitchen.get_furniture_instances():
+		if inst.def != null and inst.def.id == &"corporate_shrine":
+			return inst
+	return null
+
+
+## Waits (up to [param timeout] seconds) for the intro to reach card [param index].
+func _wait_for_card(intro: Node, index: int, timeout: float) -> bool:
+	var deadline := Time.get_ticks_msec() + int(timeout * 1000.0)
+	while Time.get_ticks_msec() < deadline:
+		if not bool(intro.running):
+			return false
+		if int(intro.card_index) >= index and str(intro.beat) == "card":
+			return true
+		await get_tree().process_frame
+	return false
 
 
 func _disable_placer() -> void:
@@ -429,11 +732,11 @@ func _wait_for_peek(want: int, timeout: float) -> int:
 	return peeking
 
 
-func _green_pixels(image: Image) -> int:
+func _green_pixels(image: Image, threshold := 0.15) -> int:
 	var count := 0
 	for y in range(0, image.get_height(), 3):
 		for x in range(0, image.get_width(), 3):
-			if _greenness(image.get_pixel(x, y)) > 0.15:
+			if _greenness(image.get_pixel(x, y)) > threshold:
 				count += 1
 	return count
 

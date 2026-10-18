@@ -19,6 +19,8 @@ extends Node
 @export var cutscene_path: NodePath
 @export var kitchen_path: NodePath
 @export var service_path: NodePath
+## Optional explicit roamers wiring; empty paths fall back to a scene search.
+@export var roamers_path: NodePath
 
 @export_group("Copy")
 ## The card titles, one per beat (five beats in the demo opening).
@@ -45,6 +47,13 @@ extends Node
 @export var beat_time := 1.2
 ## Camera distance on the cooking-line beat (metres).
 @export var cooking_distance := 12.5
+## Camera distance on the shrine beat (metres). The venue is framed at 15-22 m
+## and the camera's FOV is 79 deg wide, so 2 m of display needs a real zoom: at
+## this distance the pair fills about half the frame and still reads as a
+## display (closer and the plinth leaves the frame).
+@export var shrine_distance := 2.8
+## Seconds the camera rests on the shrine before card 2 fades in.
+@export var shrine_hold := 0.6
 ## Camera distance on the front-door beat (metres).
 @export var door_distance := 11.0
 ## Seconds the camera rests on the front door before the next card.
@@ -55,6 +64,11 @@ extends Node
 @export_range(0.0, 1.0, 0.01) var light_dip := 0.35
 ## Vignette strength of the one hint pulse (0 = no pulse).
 @export_range(0.0, 1.0, 0.01) var hint_vignette := 0.5
+## How many customers crowd the windows for the card-4 reveal ("so is something
+## else"): they are gone again when the sequence ends.
+@export var horde_count := 8
+## Fixed seed of the reveal horde, so the beat looks the same every run.
+@export var horde_seed := 20261031
 ## Music track id played under the intro (see [constant AudioBank.MUSIC_TRACKS]).
 @export var music := "build"
 
@@ -65,13 +79,19 @@ signal finished
 var running := false
 ## The card on screen right now (-1 before the first one).
 var card_index := -1
-## The current beat: "cooking", "card", "front_door" or "done". The capture tool
-## waits on this to screenshot a specific moment.
+## The current beat: "cooking", "shrine", "front_door", "card" or "done". The
+## capture tool waits on this to screenshot a specific moment.
 var beat := ""
+## Anchor cell of the shrine the card-2 beat framed (-1, -1 when the venue has
+## none, i.e. the beat was skipped). Tools read this.
+var shrine_cell := Vector2i(-1, -1)
+## True while the card-4 horde is outside.
+var horde_spawned := false
 
 var _director: CutsceneDirector
 var _kitchen: Kitchen
 var _service: Service
+var _roamers: Roamers
 var _bank: Node
 var _lights: Array[DirectionalLight3D] = []
 var _light_base: Array[float] = []
@@ -102,12 +122,21 @@ func play() -> void:
 	if director.skip_requested():
 		_finish(director)
 		return
-	# Cards 1 and 2 over the line.
-	for index in mini(2, cards.size()):
-		if await _card(director, index):
+	# Card 1 over the line.
+	if not cards.is_empty():
+		if await _card(director, 0):
 			_finish(director)
 			return
-	# Beat 2: the front door, where the customers will come in. Hold on it for a
+	# Beat 2: the shrine, where the two delivery platforms stand face to face.
+	# Card 2 ("then the delivery apps went to war") is read on the close-up.
+	if await _shrine_beat(director):
+		_finish(director)
+		return
+	if cards.size() > 1:
+		if await _card(director, 1):
+			_finish(director)
+			return
+	# Beat 3: the front door, where the customers will come in. Hold on it for a
 	# moment before the card, so the framing reads.
 	await director.focus_cell(_front_door_cell(), door_distance, beat_time)
 	beat = "front_door"
@@ -115,8 +144,8 @@ func play() -> void:
 	if director.skip_requested():
 		_finish(director)
 		return
-	# Cards 3 to 5. The fourth is the only hint of the horror: the lights dip,
-	# something growls outside and the vignette pulses once.
+	# Cards 3 to 5. The fourth is the horror: the lights dip, something growls
+	# outside, the vignette pulses once and the customers crowd the windows.
 	for index in range(2, cards.size()):
 		if index == 3:
 			_hint()
@@ -144,9 +173,11 @@ func _card(director: CutsceneDirector, index: int) -> bool:
 	return false
 
 
-## The one horror hint: the room darkens, a growl answers from the door and the
-## vignette pulses once. Runs in the background while its card is up.
+## The one horror hint: the room darkens, a growl answers from the door, the
+## vignette pulses once and — the actual reveal — the customers crowd the windows
+## outside. Runs in the background while its card is up.
 func _hint() -> void:
+	_spawn_horde()
 	_dip_lights(true)
 	var bank := _audio_bank()
 	if bank != null and bank.has_method("play_growl"):
@@ -162,6 +193,7 @@ func _hint() -> void:
 
 func _finish(director: CutsceneDirector) -> void:
 	beat = "done"
+	_clear_horde()
 	_dip_lights(false)
 	if director != null:
 		director.finish()
@@ -170,8 +202,71 @@ func _finish(director: CutsceneDirector) -> void:
 
 
 # ---------------------------------------------------------------------------
+# The reveal horde (presentation only, like the roamers themselves)
+# ---------------------------------------------------------------------------
+
+## Fills the windows outside with customers for the card-4 beat. A fixed seed, so
+## the shot is reproducible, and a guard against the menu: the horde is for the
+## intro's beat, never for the showreel behind the title card.
+func _spawn_horde() -> void:
+	var roamers := _roamers_node()
+	if roamers == null or horde_count <= 0:
+		return
+	var ui := _game_ui()
+	if ui != null and ui.has_method("is_started") and not bool(ui.call("is_started")):
+		return
+	horde_spawned = roamers.start_count(horde_count, horde_seed) > 0
+	if horde_spawned:
+		roamers.peek_now()
+
+
+## Clears the horde (the intro ended or was skipped). Only ever touches roamers
+## the intro put out itself.
+func _clear_horde() -> void:
+	if not horde_spawned:
+		return
+	horde_spawned = false
+	var roamers := _roamers_node()
+	if roamers != null:
+		roamers.stop()
+
+
+# ---------------------------------------------------------------------------
 # Framings
 # ---------------------------------------------------------------------------
+
+## Camera beat for card 2: a tight framing of the venue's corporate shrine — the
+## two mascots, turned inward, eye to eye. Returns true when the player skipped
+## during the beat. A venue without a shrine skips the beat (the card then plays
+## over the previous framing), as does a director without a camera.
+func _shrine_beat(director: CutsceneDirector) -> bool:
+	var shrine := _shrine_instance()
+	var rig := director.rig
+	if shrine == null or rig == null:
+		return false
+	beat = "shrine"
+	# The rig's zoom limits are tuned for the whole restaurant (6 m minimum); the
+	# display is 2 m wide, so this one beat has to get closer than the player
+	# ever can. The limit goes back as soon as the camera is in place.
+	var saved_min := rig.min_distance
+	rig.min_distance = minf(saved_min, shrine_distance)
+	await rig.focus_world(shrine.global_position, shrine_distance, beat_time)
+	rig.min_distance = saved_min
+	await director.wait(shrine_hold)
+	return director.skip_requested()
+
+
+## The venue's corporate shrine, if the map has one: the display the two mascots
+## stand on, recognised by the furniture id. Records [member shrine_cell].
+func _shrine_instance() -> FurnitureInstance:
+	var kitchen := _kitchen_node()
+	if kitchen == null:
+		return null
+	for inst in kitchen.get_furniture_instances():
+		if inst.def != null and inst.def.id == &"corporate_shrine":
+			shrine_cell = inst.anchor
+			return inst
+	return null
 
 ## The cooking line: the first station that actually cooks, else the map centre.
 func _cooking_cell() -> Vector2i:
@@ -259,6 +354,35 @@ func _service_node() -> Service:
 		if director != null and director.world != null:
 			_service = director.world.get_node_or_null("Service") as Service
 	return _service
+
+
+## The roamers outside the building (main.tscn's World/Roamers); the reveal horde
+## is theirs. Presentation only — see [Roamers].
+func _roamers_node() -> Roamers:
+	if _roamers != null and is_instance_valid(_roamers):
+		return _roamers
+	if not roamers_path.is_empty():
+		_roamers = get_node_or_null(roamers_path) as Roamers
+	if _roamers == null:
+		var director := _cutscene()
+		if director != null and director.world != null:
+			_roamers = director.world.get_node_or_null("Roamers") as Roamers
+	if _roamers == null:
+		var root := get_tree().current_scene
+		if root != null:
+			_roamers = root.find_child("Roamers", true, false) as Roamers
+	return _roamers
+
+
+## The player UI: whichever ancestor knows whether the menu is still up (the
+## intro is a child of it in main.tscn, but the search does not assume that).
+func _game_ui() -> Node:
+	var node := get_parent()
+	while node != null:
+		if node.has_method("is_started"):
+			return node
+		node = node.get_parent()
+	return null
 
 
 func _audio_bank() -> Node:

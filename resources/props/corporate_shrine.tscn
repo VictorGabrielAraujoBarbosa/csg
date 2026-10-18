@@ -13,9 +13,18 @@
 ;   plinth       1.00 x 0.06 x 0.45   the low slab (2.00 x 0.12 x 0.90 m)
 ;   kerb         0.125 tall x 0.02    front + both sides, on the slab
 ;   plaque       0.26 x 0.10 x 0.008  brass, tilted 35 deg back on the kerb
-;   mascots      0.6 scale, 0.33 either side of centre, on the slab
+;   mascots      0.6 scale, turned inward, centres 0.28 either side of centre
 ; The whole piece stays inside x 1.00 / z 0.45 and touches the floor (min y 0),
 ; so it measures 2x1 cells and rotates to 1x2.
+;
+; The two mascots face EACH OTHER (see the transforms below): a quarter turn
+; around Y, +90 deg for the left figure and -90 deg for the right one, so their
+; bowls point at the middle of the slab — the two platforms, eye to eye, with
+; the plaque between them. A mascot's pivot sits at the back-left corner of its
+; mesh (bowl towards +Z, tank at the origin), so the quarter turn swings the
+; whole figure sideways: the node origins below are NOT the visual centres, they
+; are what puts each centre at x +/-0.28 / z -0.02 — symmetric on the slab,
+; bowls 0.27 apart (0.53 m), both clear of the side rails and the back edge.
 ;
 ; The mascots are the existing mascot_*.tscn scenes, instanced and scaled:
 ; their paint (material_override on every mesh *and* the colours baked into the
@@ -28,7 +37,7 @@
 ; recolours the display.
 ;
 ; Faces +Z, like the kit blueprints: the rail is on the front (+Z) and sides,
-; the back is open.
+; the back is open. The mascots, however, face inwards along X.
 
 [ext_resource type="PackedScene" path="res://resources/props/mascot_red.tscn" id="1_red"]
 [ext_resource type="PackedScene" path="res://resources/props/mascot_yellow.tscn" id="2_yellow"]
@@ -96,8 +105,12 @@ transform = Transform3D(1, 0, 0, 0, 0.819152, 0.5735765, 0, -0.5735765, 0.819152
 material_override = SubResource("StandardMaterial3D_plaque")
 mesh = SubResource("BoxMesh_plaque")
 
+; Right figure, turned -90 deg around Y: its bowl points at -X, i.e. left, at
+; the other mascot. (tscn writes the basis row-major; the scale 0.6 sits on the
+; diagonal.)
 [node name="MascotRed" parent="." instance=ExtResource("1_red")]
-transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, 0.23622, 0.06, -0.17175)
+transform = Transform3D(0, 0, -0.6, 0, 0.6, 0, 0.6, 0, 0, 0.4231, 0.06, -0.1138)
 
+; Left figure, turned +90 deg around Y: its bowl points at +X, at the red one.
 [node name="MascotYellow" parent="." instance=ExtResource("2_yellow")]
-transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, -0.42378, 0.06, -0.17175)
+transform = Transform3D(0, 0, 0.6, 0, 0.6, 0, -0.6, 0, 0, -0.4231, 0.06, 0.0738)

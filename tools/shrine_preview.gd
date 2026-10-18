@@ -30,6 +30,7 @@ const CLOSE_PATH := "/tmp/opencode/shrine_preview_close.png"
 const FAR_PATH := "/tmp/opencode/shrine_preview_far.png"
 const CENSUS_PATH := "/tmp/opencode/shrine_census.png"
 const INGAME_PATH := "/tmp/opencode/shrine_ingame.png"
+const FACES_PATH := "/tmp/opencode/shrine_faces.png"
 
 const PROP_DIR := "res://resources/props/"
 const TOILET := "res://assets/kenney_furniture-kit/Models/GLTF format/toilet.glb"
@@ -52,6 +53,9 @@ const FRAMES_BEFORE_SHOT := 30
 const ROW_DISTANCE := 4.8
 const CLOSE_DISTANCE := 2.6
 const FAR_DISTANCE := 15.0
+## Straight-on framing of the display for the face-off shot: the 2 m slab (and
+## the two turned mascots on it) fill a good part of the frame.
+const FACE_DISTANCE := 3.0
 ## Mid-gray census backdrop: far from white and black, so the sub colours of both
 ## mascots still count as their own family.
 const CENSUS_BACKDROP := Color(0.26, 0.3, 0.38)
@@ -91,10 +95,11 @@ func _run_preview() -> void:
 	await _shoot(DIAG_PATH, Vector3(0.5, 0.4, 0.0), CLOSE_DISTANCE, 40.0)
 	await _shoot(CLOSE_PATH, Vector3(0.5, 0.35, 0.0), CLOSE_DISTANCE, 0.0)
 	await _shoot(FAR_PATH, Vector3(1.8, 0.4, 0.0), FAR_DISTANCE, 0.0)
+	await _shoot_faces()
 	await _shoot_census()
 	await _run_ingame()
-	print("[shrine] wrote %s, %s, %s, %s, %s and %s"
-		% [OUT_PATH, DIAG_PATH, CLOSE_PATH, FAR_PATH, CENSUS_PATH, INGAME_PATH])
+	print("[shrine] wrote %s, %s, %s, %s, %s, %s and %s"
+		% [OUT_PATH, DIAG_PATH, CLOSE_PATH, FAR_PATH, FACES_PATH, CENSUS_PATH, INGAME_PATH])
 	if _failures.is_empty():
 		print("[shrine] ALL CHECKS PASSED")
 	else:
@@ -191,6 +196,7 @@ func _report_shrine(def: FurnitureDef) -> void:
 	_check(aabb.size.x * def.scale_mult <= 2.01 and aabb.size.z * def.scale_mult <= 0.91,
 		"the display fits its 2.00 x 0.90 m footprint",
 		"%.3f x %.3f m" % [aabb.size.x * def.scale_mult, aabb.size.z * def.scale_mult])
+	_report_facing(node)
 	for entry: Dictionary in paint:
 		print("[shrine]   %-44s %s slot=%s" % [entry["path"], (entry["color"] as Color).to_html(false), entry["slot"]])
 	_check_mascot_paint(paint, "authored")
@@ -204,6 +210,41 @@ func _report_shrine(def: FurnitureDef) -> void:
 	for entry: Dictionary in bare:
 		print("[shrine]   bare %-39s %s slot=%s" % [entry["path"], (entry["color"] as Color).to_html(false), entry["slot"]])
 	_check_mascot_paint(bare, "after the kitchen's tint pass")
+
+
+## The two mascots must turn inward: each one's forward axis points at the other
+## figure, and neither may hang off the slab. Measured on the instanced scene, in
+## the shrine's own space (a mascot faces +Z in its own scene — the bowl end).
+func _report_facing(node: Node3D) -> void:
+	var red := node.get_node_or_null("MascotRed") as Node3D
+	var yellow := node.get_node_or_null("MascotYellow") as Node3D
+	if red == null or yellow == null:
+		_check(false, "the shrine carries both mascots", "red=%s yellow=%s" % [red, yellow])
+		return
+	var red_box := MeshBounds.combined_aabb(red)
+	var yellow_box := MeshBounds.combined_aabb(yellow)
+	var to_yellow := (yellow_box.get_center() - red_box.get_center()).normalized()
+	var red_forward := red.transform.basis.z.normalized()
+	var yellow_forward := yellow.transform.basis.z.normalized()
+	print("[shrine] facing: red looks %s, yellow looks %s, red->yellow %s (dots %.3f / %.3f)"
+		% [red_forward, yellow_forward, to_yellow,
+			red_forward.dot(to_yellow), yellow_forward.dot(-to_yellow)])
+	_check(red_forward.dot(to_yellow) > 0.95, "the red mascot looks at the yellow one",
+		"forward %s vs %s" % [red_forward, to_yellow])
+	_check(yellow_forward.dot(-to_yellow) > 0.95, "the yellow mascot looks at the red one",
+		"forward %s vs %s" % [yellow_forward, -to_yellow])
+	_check(red_forward.dot(yellow_forward) < -0.95, "the two mascots face each other",
+		"dot %.3f" % red_forward.dot(yellow_forward))
+	var gap := red_box.get_center().distance_to(yellow_box.get_center()) - red_box.size.x * 0.5 - yellow_box.size.x * 0.5
+	print("[shrine] the two bowls stand %.3f native / %.3f m apart" % [gap, gap * 2.0])
+	_check(gap > 0.05 and gap < 0.6, "the pair reads as face to face (a small gap, no overlap)",
+		"%.3f native" % gap)
+	for entry: Array in [[red, red_box, "red"], [yellow, yellow_box, "yellow"]]:
+		var box: AABB = entry[1]
+		_check(box.position.x >= -0.5 and box.end.x <= 0.5
+				and box.position.z >= -0.225 and box.end.z <= 0.225,
+			"the %s mascot stands on the slab (x +-0.5, z +-0.225)" % entry[2],
+			"x %.3f..%.3f z %.3f..%.3f" % [box.position.x, box.end.x, box.position.z, box.end.z])
 
 
 ## Every mascot mesh carries its colour in both paint slots: the material_override
@@ -431,6 +472,32 @@ func _shoot(path: String, focus: Vector3, distance: float, yaw: float, pitch := 
 	var err := image.save_png(path)
 	print("[shrine] screenshot %s (err=%d, %dx%d)" % [path, err, image.get_width(), image.get_height()])
 	return image
+
+
+## The face-off shot: a close, straight-on framing of the display plus a census
+## of which half of the frame each mascot's paint lands in — rendered proof that
+## the two figures stand turned inward, side by side, and not back to back, on
+## top of each other or hanging off the slab.
+func _shoot_faces() -> void:
+	var image := await _shoot(FACES_PATH, Vector3(0.5, 0.3, 0.0), FACE_DISTANCE, 0.0)
+	var left := {"red": 0, "yellow": 0}
+	var right := {"red": 0, "yellow": 0}
+	for y in image.get_height():
+		for x in image.get_width():
+			var family := _family(image.get_pixel(x, y))
+			if family != "red" and family != "yellow":
+				continue
+			var side := left if x < image.get_width() / 2 else right
+			side[family] = int(side[family]) + 1
+	print("[shrine] face-off %s: red left=%d right=%d, yellow left=%d right=%d"
+		% [FACES_PATH, left["red"], right["red"], left["yellow"], right["yellow"]])
+	_check(int(left["yellow"]) > 150 and int(right["red"]) > 150,
+		"the face-off shot shows the yellow mascot left and the red one right",
+		"yellow left=%d, red right=%d" % [left["yellow"], right["red"]])
+	_check(int(left["red"]) < int(right["red"]) and int(right["yellow"]) < int(left["yellow"]),
+		"neither mascot has swapped sides of the display",
+		"red left=%d right=%d | yellow left=%d right=%d"
+			% [left["red"], right["red"], left["yellow"], right["yellow"]])
 
 
 ## The census shot: the references and the floor tiles hidden, the shrine's own
