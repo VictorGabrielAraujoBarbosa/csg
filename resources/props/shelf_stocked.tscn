@@ -1,0 +1,57 @@
+[gd_scene load_steps=3 format=3]
+
+; Dry-storage shelf: the plain "bookcaseClosed" model (the same one the shelf
+; station uses) with two small piles of bread on every shelf board, so a storage
+; shelf reads as stocked from the game camera. Every child is a Kenney model
+; used as-is; the whole prop is scaled by 2 at runtime (FurnitureDef.scale_mult),
+; so the food-kit children sit at 0.33 = the game's own food size (0.7 world).
+;
+; Native kit units: the bookcase is 0.40 x 0.85 x 0.25 and its open front faces
+; +Z (towards the game camera). The boards' top surfaces are at y = 0.13 / 0.37
+; / 0.61 and the clear interior is x 0.04..0.36, z -0.21..-0.02. Every bread
+; slice stays inside that box (front of the shelf, so the shelf above does not
+; hide it at a 50 degree camera pitch), so the piece still measures 1x1 cells
+; after the x2 scale.
+
+[ext_resource type="PackedScene" uid="uid://dx53y4aufsuib" path="res://assets/kenney_furniture-kit/Models/GLTF format/bookcaseClosed.glb" id="1_bookcase"]
+[ext_resource type="PackedScene" uid="uid://cyqemray023wg" path="res://assets/kenney_food-kit/Models/GLB format/bread.glb" id="2_bread"]
+
+[node name="ShelfStocked" type="Node3D"]
+
+[node name="Bookcase" parent="." instance=ExtResource("1_bookcase")]
+
+[node name="Bread1A" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.13, -0.09)
+
+[node name="Bread1A2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.143, -0.09)
+
+[node name="Bread1B" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.13, -0.09)
+
+[node name="Bread1B2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.143, -0.09)
+
+[node name="Bread2A" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.37, -0.09)
+
+[node name="Bread2A2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.383, -0.09)
+
+[node name="Bread2B" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.37, -0.09)
+
+[node name="Bread2B2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.383, -0.09)
+
+[node name="Bread3A" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.61, -0.09)
+
+[node name="Bread3A2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.12, 0.623, -0.09)
+
+[node name="Bread3B" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.61, -0.09)
+
+[node name="Bread3B2" parent="." instance=ExtResource("2_bread")]
+transform = Transform3D(0.33, 0, 0, 0, 0.33, 0, 0, 0, 0.33, 0.28, 0.623, -0.09)

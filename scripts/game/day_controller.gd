@@ -43,6 +43,9 @@ signal reasons_changed(reasons: Array)
 @export var mob_max := 6
 ## Safety cap on the attack, in ticks; then the day closes anyway.
 @export var horror_timeout_ticks := 900
+## What it costs to replace one eaten worker. If the purse cannot cover the
+## whole crew, the restaurant closes for good.
+@export var rehire_cost := 40
 
 ## The hand-authored opening days (no RNG: the demo must play the same way every
 ## run). Day 1 teaches storage — the venue ships without one — day 2 teaches
@@ -85,6 +88,8 @@ var loss_reason := ""
 var summary: Dictionary = {}
 ## True while the customers are inside eating the staff.
 var horror := false
+## Set when the run is over (the purse could not rehire the eaten staff).
+var run_over := false
 
 var _horror_deadline := 0
 
@@ -183,6 +188,7 @@ func start_day() -> bool:
 	if service != null:
 		service.stop_mob()
 		service.clear_eaten_posts()
+	service.watchdog_enabled = true
 	phase = Phase.DAY
 	phase_changed.emit(phase)
 	print("[day] day %d starts: %d orders over %d ticks (seed %d)" % [
@@ -193,8 +199,20 @@ func start_day() -> bool:
 func finish_day() -> void:
 	# Leave the day phase (used by the summary screen's button).
 	if phase == Phase.SUMMARY:
+		if run_over:
+			return
 		if service != null:
 			service.reset_after_day()
+			# Rehiring the staff the customers ate costs money; if the purse
+			# cannot cover it, the run is over.
+			var eaten := service.eaten_count()
+			var fee := eaten * rehire_cost
+			if fee > 0 and not service.orders.try_spend(fee):
+				run_over = true
+				summary["run_over"] = true
+				summary["rehire_fee"] = fee
+				day_finished.emit(summary)
+				return
 			service.clear_eaten_posts()
 		if kitchen != null:
 			kitchen.clear_broken_edges()
@@ -305,6 +323,7 @@ func _finish_day() -> void:
 	if lost:
 		# The orders are already failed; the staff may be short a few chibis.
 		pass
+	service.watchdog_enabled = false
 	summary = {
 		"day": day,
 		"served": served,
@@ -312,6 +331,7 @@ func _finish_day() -> void:
 		"lost": lost,
 		"reason": loss_reason,
 		"eaten": service.eaten_count(),
+		"rehire_fee": service.eaten_count() * rehire_cost,
 	}
 	phase = Phase.SUMMARY
 	phase_changed.emit(phase)

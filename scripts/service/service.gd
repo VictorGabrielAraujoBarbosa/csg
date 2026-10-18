@@ -89,6 +89,11 @@ var _accumulator := 0.0
 var _warning_seen: Dictionary = {}
 ## Posts whose worker was eaten: nobody stands there until the next day.
 var _eaten_posts: Dictionary = {}
+## How many watchdog checks in a row an order has had no work (see _retry_stalled_orders).
+var _stalled_seen: Dictionary = {}
+## Re-plan orders that lost all their jobs (the day controller turns this on while
+## a day is running; headless sims leave it off so they stay reproducible).
+var watchdog_enabled := false
 
 
 func tick_seconds() -> float:
@@ -106,6 +111,7 @@ func _ready() -> void:
 	add_child(orders)
 	orders.warning.connect(_on_warning)
 	orders.order_added.connect(_on_order_added)
+	orders.order_failed.connect(_on_order_failed)
 	if kitchen != null:
 		kitchen.layout_rebuilt.connect(_on_layout_changed)
 		kitchen.layout_edited.connect(_on_layout_changed)
@@ -140,6 +146,8 @@ func tick_once() -> void:
 			worker.tick(tick)
 		if ticks_per_second > 0 and tick % maxi(ticks_per_second * 2, 1) == 0:
 			_retry_unplannable()
+			if watchdog_enabled:
+				_retry_stalled_orders()
 	tick_passed.emit(tick)
 	state_changed.emit()
 
@@ -235,6 +243,47 @@ func clear_eaten_posts() -> void:
 		return
 	_eaten_posts.clear()
 	_sync_workers()
+
+
+## An order died before it was delivered: give its ingredients back to the pool.
+## Dishes simply lose their order tag and become free for anyone; trays get
+## special treatment, because a tray is a physical thing that has to stay in the
+## cycle: a packed tray is clean again, a plated tray becomes dirty (the food was
+## made and never handed over, so it still needs washing).
+func release_order_items(order: Order) -> void:
+	if order == null:
+		return
+	board.cancel_for_order(order, "order failed")
+	var released := 0
+	for item in items.items.duplicate():
+		if int(item.payload.get("order", -1)) != order.id:
+			continue
+		match item.def.id:
+			&"tray_with_order":
+				_swap_item(item, &"tray")
+			&"tray_with_finished_order":
+				_swap_item(item, &"tray_dirty")
+			_:
+				item.payload.erase("order")
+		released += 1
+	if released > 0:
+		_log("order %d failed: %d item(s) released back into the kitchen" % [order.id, released])
+
+
+## Replaces an item with another kind of item in the same slot (tray states).
+func _swap_item(item: WorldItem, new_id: StringName) -> void:
+	var def := ItemCatalog.find(new_id)
+	if def == null:
+		items.remove(item)
+		return
+	var cell := item.cell
+	var height := item.base_height
+	items.remove(item)
+	items.spawn(def, cell, {}, height)
+
+
+func _on_order_failed(order: Order, _reason: String) -> void:
+	release_order_items(order)
 
 
 ## The staff that did not survive the day.
@@ -489,6 +538,9 @@ func finish_produce(job: Job, worker: Worker = null) -> void:
 	var out: WorldItem = null
 	for i in maxi(job.recipe.output_amount, 1):
 		out = items.spawn(out_def, cell, payload_for(job, entries), kitchen.surface_height(cell))
+		# Only the order's own dish is tagged with the order: ingredients stay
+		# shareable between orders (tagging them would lock the pantry per order).
+		pass  # BISECT: tagging disabled
 	job.state = Job.State.DONE
 	_log("%s -> %s @ %s" % [job.recipe.display_name, job.recipe.output, cell])
 	work_finished.emit(worker, job)
@@ -665,6 +717,41 @@ func emit_warning(text: String) -> void:
 		return
 	_warning_seen[text] = tick
 	warning.emit(text)
+
+
+## An order whose jobs all vanished (a cancelled or failed job) would sit silent
+## until it timed out. Every couple of seconds, re-plan an order that has no
+## pending or active work left, so a lost job can never strand an order.
+func _retry_stalled_orders() -> void:
+	for order in orders.orders:
+		if order.state != Order.State.IN_PROGRESS and order.state != Order.State.WAITING:
+			_stalled_seen.erase(order.id)
+			continue
+		if _has_live_jobs(order):
+			# Give it a grace period: an order is only "stalled" after it has had
+			# no work for a few checks (the tick between the last job finishing
+			# and the order completing looks the same as a stall).
+			_stalled_seen.erase(order.id)
+			continue
+		var seen := int(_stalled_seen.get(order.id, 0)) + 1
+		_stalled_seen[order.id] = seen
+		if seen < 3:
+			continue
+		if plan_order(order):
+			order.state = Order.State.IN_PROGRESS
+			_log("re-planned stalled order %d" % order.id)
+		else:
+			order.state = Order.State.UNPLANNABLE
+			_log("stalled order %d cannot be re-planned" % order.id)
+
+
+func _has_live_jobs(order: Order) -> bool:
+	for job in board.jobs:
+		if job.order != order:
+			continue
+		if job.state == Job.State.PENDING or job.state == Job.State.ACTIVE:
+			return true
+	return false
 
 
 func _retry_unplannable() -> void:

@@ -1,0 +1,41 @@
+[gd_scene load_steps=6 format=3]
+
+; Dining table, laid: the plain "table" model (2x1 cells) with two place
+; settings (a plate and a cup each), a small plant in the middle and a sauce
+; bottle at the near edge, for dressing the dining room of the start map. Every
+; child is a Kenney model used as-is; the whole prop is scaled by 2 at runtime
+; (FurnitureDef.scale_mult), so the food-kit children sit at 0.35 = the game's
+; own food size (0.7 world).
+;
+; Native kit units: the table is 0.841 x 0.327 x 0.447 and its top surface is at
+; y = 0.327. Everything sits on that top, inside the table's own footprint, so
+; the piece measures 2x1 cells after the x2 scale. The plant is a furniture-kit
+; model at native scale (1.0) = the same 28 cm plant the catalog sells.
+
+[ext_resource type="PackedScene" uid="uid://b15qpo1yciqfw" path="res://assets/kenney_furniture-kit/Models/GLTF format/table.glb" id="1_table"]
+[ext_resource type="PackedScene" uid="uid://b4ectruh8c4hu" path="res://assets/kenney_food-kit/Models/GLB format/plate.glb" id="2_plate"]
+[ext_resource type="PackedScene" uid="uid://52jew3sdacw" path="res://assets/kenney_food-kit/Models/GLB format/cup.glb" id="3_cup"]
+[ext_resource type="PackedScene" uid="uid://dfmgjkwivh5o" path="res://assets/kenney_furniture-kit/Models/GLTF format/plantSmall1.glb" id="4_plant"]
+[ext_resource type="PackedScene" uid="uid://ddxxuib4rg88i" path="res://assets/kenney_food-kit/Models/GLB format/bottle-ketchup.glb" id="5_sauce"]
+
+[node name="TableDressed" type="Node3D"]
+
+[node name="Table" parent="." instance=ExtResource("1_table")]
+
+[node name="PlateLeft" parent="." instance=ExtResource("2_plate")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.17, 0.327, -0.25)
+
+[node name="PlateRight" parent="." instance=ExtResource("2_plate")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.67, 0.327, -0.25)
+
+[node name="CupLeft" parent="." instance=ExtResource("3_cup")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.17, 0.327, -0.06)
+
+[node name="CupRight" parent="." instance=ExtResource("3_cup")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.67, 0.327, -0.06)
+
+[node name="Plant" parent="." instance=ExtResource("4_plant")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.42, 0.327, -0.22)
+
+[node name="SauceBottle" parent="." instance=ExtResource("5_sauce")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.42, 0.327, -0.055)

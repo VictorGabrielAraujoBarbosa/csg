@@ -108,6 +108,20 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
 	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
+	# Stocked versions of the storage pieces: the goods are part of the prop, so
+	# they read at a glance as "this is where ingredients come from".
+	var stocked_shelf := _make("shelf_stocked", "Stocked Shelf", "shelf_stocked.tscn", Vector2i(1, 1), 90,
+		["storage"], &"storage", true, "Dry storage with bread on the shelves: potatoes, bread and sauce.", PROPS_DIR)
+	stocked_shelf.surface_override = 1.70
+	out.append(stocked_shelf)
+	var stocked_fridge := _make("fridge_stocked", "Stocked Fridge", "fridge_stocked.tscn", Vector2i(1, 1), 180,
+		["storage", "cold"], &"storage", true, "Cold storage with goods on top: meat, cheese and salads.", PROPS_DIR)
+	stocked_fridge.surface_override = 1.84
+	out.append(stocked_fridge)
+	var dressed := _make("table_dressed", "Dressed Table", "table_dressed.tscn", Vector2i(2, 1), 90,
+		["dining", "surface"], &"decor", false, "", PROPS_DIR)
+	dressed.surface_override = 0.65
+	out.append(dressed)
 	return out
 
 

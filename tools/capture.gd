@@ -457,9 +457,9 @@ func _reset_world(service: Service) -> void:
 	for job in service.board.jobs:
 		service.board.cancel(job, "reset")
 	service.board.cleanup()
-	for order in service.orders.orders:
-		if order.is_active():
-			order.state = Order.State.FAILED
+	service.orders.orders.clear()
+	service.orders.completed_count = 0
+	service._stalled_seen.clear()
 	for item in service.items.items.duplicate():
 		service.items.remove(item)
 	service._seed_trays()

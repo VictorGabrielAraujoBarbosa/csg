@@ -1,0 +1,39 @@
+[gd_scene load_steps=6 format=3]
+
+; Cold-storage fridge: the plain "kitchenFridge" model (the same one the fridge
+; station uses) with a delivery of goods stacked on its top. The kit fridge is a
+; closed box (its door faces +Z, towards the game camera), so there is no shelf
+; to see into: the goods sit on the top face at y = 0.92, which the 50 degree
+; game camera looks straight down onto.
+;
+; Every child is a Kenney model used as-is; the whole prop is scaled by 2 at
+; runtime (FurnitureDef.scale_mult), so the food-kit children sit at 0.35 = the
+; game's own food size (0.7 world). They all stay inside the fridge's own
+; footprint (x 0..0.43, z -0.282..-0.02), so the piece still measures 1x1 cells
+; after the x2 scale. The cheese wheel is a little smaller than the food-kit
+; scale on purpose: at 0.35 it would be 48 cm across and swamp the fridge top.
+
+[ext_resource type="PackedScene" uid="uid://bclvp5gfa646t" path="res://assets/kenney_furniture-kit/Models/GLTF format/kitchenFridge.glb" id="1_fridge"]
+[ext_resource type="PackedScene" uid="uid://brdsbpqm0j3cf" path="res://assets/kenney_food-kit/Models/GLB format/carton.glb" id="2_carton"]
+[ext_resource type="PackedScene" uid="uid://bkjoo7one8xdh" path="res://assets/kenney_food-kit/Models/GLB format/cheese.glb" id="3_cheese"]
+[ext_resource type="PackedScene" uid="uid://bvv6v7d2awq8x" path="res://assets/kenney_food-kit/Models/GLB format/broccoli.glb" id="4_broccoli"]
+[ext_resource type="PackedScene" uid="uid://dgt7bwkylq3yr" path="res://assets/kenney_food-kit/Models/GLB format/tomato.glb" id="5_tomato"]
+
+[node name="FridgeStocked" type="Node3D"]
+
+[node name="Fridge" parent="." instance=ExtResource("1_fridge")]
+
+[node name="MilkCarton" parent="." instance=ExtResource("2_carton")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.075, 0.92, -0.225)
+
+[node name="CheeseWheel" parent="." instance=ExtResource("3_cheese")]
+transform = Transform3D(0.28, 0, 0, 0, 0.28, 0, 0, 0, 0.28, 0.325, 0.92, -0.185)
+
+[node name="Broccoli" parent="." instance=ExtResource("4_broccoli")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.08, 0.92, -0.1)
+
+[node name="Tomato1" parent="." instance=ExtResource("5_tomato")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.235, 0.92, -0.065)
+
+[node name="Tomato2" parent="." instance=ExtResource("5_tomato")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 0.325, 0.92, -0.045)

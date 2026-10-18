@@ -64,6 +64,84 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 ## Height items float at on top of a station / point (measured per piece).
 @export var surface_item_height := 0.5
 
+@export_group("Hover marker")
+## Colour of the pulsing ring drawn under the piece the player hovers.
+@export var hover_ring_color := Color(0.42, 0.86, 1.0)
+## Alpha of the ring's outline band.
+@export_range(0.0, 1.0, 0.01) var hover_ring_alpha := 0.85
+## Alpha of the soft plate filling the hovered piece's footprint.
+@export_range(0.0, 1.0, 0.01) var hover_fill_alpha := 0.16
+## Side of one fill quad (metres; below 1 so the grid stays visible).
+@export var hover_fill_size := 0.92
+## Width of the outline band (metres).
+@export var hover_ring_width := 0.08
+## How far the outline sits outside the footprint (metres).
+@export var hover_ring_margin := 0.12
+## Height the ring floats above the floor (metres).
+@export var hover_ring_height := 0.035
+## Emissive colour added to the hovered piece's own materials.
+@export var hover_glow_color := Color(0.42, 0.86, 1.0)
+## Strength of that emission (0 turns the glow off).
+@export var hover_glow_energy := 0.45
+## Pulses per second of the hover marker (real time, never ticks).
+@export var hover_pulse_hz := 1.5
+
+@export_group("Zone markers")
+## Decal colour of a station's input cells.
+@export var zone_input_color := Color(0.25, 0.6, 1.0)
+## Decal colour of a station's output cells.
+@export var zone_output_color := Color(1.0, 0.65, 0.12)
+## Height the zone decals float above the floor when the piece has no surface
+## (metres). On a piece with a work surface the decals ride on top of it instead,
+## so a table never hides its own zone tiles.
+@export var zone_decal_height := 0.03
+## How far above the piece's work surface the decals float (metres).
+@export var zone_decal_clearance := 0.015
+## Side of one zone decal (metres; below 1 so the grid stays visible).
+@export var zone_decal_size := 0.84
+## Alpha of the zone decals and their arrows.
+@export_range(0.0, 1.0, 0.01) var zone_decal_alpha := 0.45
+## Size of the flow arrow drawn on an input / output decal (metres).
+@export var zone_arrow_size := 0.42
+
+@export_group("Busy marker")
+## Colour of the spinner hovering over a station while it is in use.
+@export var busy_marker_color := Color(0.35, 0.85, 1.0)
+## Alpha of the spinner arc.
+@export_range(0.0, 1.0, 0.01) var busy_marker_alpha := 0.95
+## Radius of the spinner arc (metres).
+@export var busy_marker_radius := 0.22
+## Thickness of the spinner arc (metres).
+@export var busy_marker_width := 0.055
+## How much of the circle the arc spans (degrees).
+@export var busy_marker_arc_deg := 150.0
+## How high the spinner floats above the station's surface (metres).
+@export var busy_marker_height := 0.34
+## Degrees the spinner turns per second (real time, never ticks).
+@export var busy_marker_speed := 220.0
+## Vertical bob of the spinner (metres).
+@export var busy_marker_bob := 0.035
+## Bobs per second.
+@export var busy_marker_bob_hz := 0.9
+
+@export_group("Placement preview")
+## Fill / outline colour of the footprint preview when the spot is free.
+@export var preview_valid_color := Color(0.35, 1.0, 0.5)
+## Fill / outline colour of the footprint preview when the spot is blocked.
+@export var preview_invalid_color := Color(1.0, 0.32, 0.3)
+## Alpha of the preview's per-cell fill.
+@export_range(0.0, 1.0, 0.01) var preview_fill_alpha := 0.16
+## Alpha of the preview's outline.
+@export_range(0.0, 1.0, 0.01) var preview_outline_alpha := 0.8
+## Side of one preview fill quad (metres; below 1 so the grid stays visible).
+@export var preview_fill_size := 0.92
+## Width of the preview's outline band (metres).
+@export var preview_outline_width := 0.06
+## How far the preview's outline sits outside the footprint (metres).
+@export var preview_margin := 0.03
+## Height the preview floats above the floor (metres).
+@export var preview_height := 0.02
+
 var data: KitchenLayout
 ## The purse an undone sale is charged back to. Set by [Service]; null in the
 ## editor and the map tools, where no money changes hands.
@@ -85,13 +163,56 @@ var _wall_entries: Array = []        # {"nodes": Array[Node3D], "vertices": Arra
 var _column_nodes: Dictionary = {}   # Vector2i doubled vertex -> Node3D
 var _undo_stack: Array = []
 
+# World markers (hover ring, zone decals, busy spinner, placement preview).
+# Presentation only: all of them live under _markers_root and are animated in
+# real time by _process; the simulation never reads them back.
+var _markers_root: Node3D
+var _marker_time := 0.0
+var _hover_inst: FurnitureInstance = null
+var _hover_ring: MeshInstance3D = null
+var _hover_fill: MeshInstance3D = null
+var _hover_ring_mat: StandardMaterial3D = null
+var _hover_fill_mat: StandardMaterial3D = null
+var _hover_glow_mats: Array[BaseMaterial3D] = []
+var _hover_shape_key := ""
+var _zone_roots: Dictionary = {}      # instance id -> {"inst", "root", "visible", "grab"}
+var _zone_markers_shown := true       # state newly placed zone markers start in
+var _spinners: Dictionary = {}        # station key -> {"node", "arc", "base_y", "phase"}
+var _spin_angle := 0.0
+var _preview_cells: Array[Vector2i] = []
+var _preview_valid := true
+var _preview_fill: MeshInstance3D = null
+var _preview_outline: MeshInstance3D = null
+var _preview_fill_mat: StandardMaterial3D = null
+var _preview_outline_mat: StandardMaterial3D = null
+var _zone_quad: ArrayMesh = null
+var _zone_arrow: ArrayMesh = null
+var _spinner_mesh: ArrayMesh = null
+
 
 func _ready() -> void:
 	rebuild()
+	set_process(false)
+
+
+## The real-time clock of every world marker. Never tied to the tick rate, and
+## nothing here is ever read back by the simulation (invariant 11).
+func _process(delta: float) -> void:
+	var animating := false
+	_marker_time += delta
+	if _hover_inst != null:
+		_animate_hover()
+		animating = true
+	if not _spinners.is_empty():
+		_animate_spinners(delta)
+		animating = true
+	if not animating:
+		set_process(false)
 
 
 func rebuild() -> void:
 	_load_layout()
+	_clear_markers()
 	if is_instance_valid(_generated):
 		remove_child(_generated)
 		_generated.free()
@@ -304,13 +425,14 @@ func can_place(def: FurnitureDef, anchor: Vector2i, steps: int) -> bool:
 	return true
 
 
-func place_furniture(def: FurnitureDef, anchor: Vector2i, steps: int, tints := {}, record := true) -> FurnitureInstance:
+func place_furniture(def: FurnitureDef, anchor: Vector2i, steps: int, tints := {}, record := true,
+		paid := false) -> FurnitureInstance:
 	if not can_place(def, anchor, steps):
 		return null
 	var inst := _place_furniture_raw(def, anchor, steps, tints)
 	if record:
 		data.furniture.append(furniture_entry(inst))
-		push_undo({"type": "furniture_add", "entry": furniture_entry(inst)})
+		push_undo({"type": "furniture_add", "entry": furniture_entry(inst), "paid": paid})
 		layout_edited.emit()
 	return inst
 
@@ -329,6 +451,9 @@ func remove_furniture_at(cell: Vector2i, record := true) -> bool:
 func remove_furniture(inst: FurnitureInstance, record := true, refund := 0) -> void:
 	if inst == null:
 		return
+	if inst == _hover_inst:
+		set_hover_highlight(null)
+	_drop_zone_markers(inst)
 	var entry := furniture_entry(inst)
 	for c in inst.footprint_cells():
 		_furniture_by_cell.erase(c)
@@ -383,6 +508,7 @@ func begin_grab(inst: FurnitureInstance) -> void:
 		return
 	for c in inst.footprint_cells():
 		_furniture_by_cell.erase(c)
+	_set_zone_markers_grabbed(inst, true)
 
 
 func cancel_grab(inst: FurnitureInstance) -> void:
@@ -390,6 +516,7 @@ func cancel_grab(inst: FurnitureInstance) -> void:
 		return
 	for c in inst.footprint_cells():
 		_furniture_by_cell[c] = inst
+	_set_zone_markers_grabbed(inst, false)
 	_position_furniture(inst)
 
 
@@ -414,6 +541,7 @@ func move_furniture(inst: FurnitureInstance, anchor: Vector2i, steps: int, recor
 	inst.rot_steps = steps
 	for c in inst.footprint_cells():
 		_furniture_by_cell[c] = inst
+	_set_zone_markers_grabbed(inst, false)
 	_position_furniture(inst)
 	_update_furniture_entry(inst, from_anchor, from_steps)
 	if record:
@@ -439,6 +567,8 @@ func _position_furniture(inst: FurnitureInstance) -> void:
 	var off := inst.def.cell_center_offset(inst.rot_steps)
 	inst.position = cell_to_world(inst.anchor) + Vector3(off.x, 0.0, off.y)
 	inst.rotation_degrees = Vector3(0.0, inst.rot_steps * 90.0 + inst.def.yaw_offset_deg, 0.0)
+	# Zone decals are grid-aligned, so they are rebuilt rather than parented.
+	_refresh_zone_markers(inst)
 
 
 ## Re-applies a piece's own tints (used after a ghost-tinted drag).
@@ -459,6 +589,10 @@ func _place_furniture_raw(def: FurnitureDef, anchor: Vector2i, steps: int, tints
 	_furniture.append(inst)
 	inst.tints = tints.duplicate()
 	_apply_furniture_tints(inst)
+	# A zoned station (the assembly table) gets its input / output decals the
+	# moment it exists; everything else never grows markers.
+	if not def.zones.is_empty():
+		_build_zone_markers(inst)
 	return inst
 
 
@@ -571,19 +705,646 @@ static func layout_files() -> PackedStringArray:
 ## again once that override is gone, so clear it first.
 func _apply_furniture_tints(inst: FurnitureInstance) -> void:
 	inst.clear_material_override()
+	_restore_surface_overrides(inst)
+
+
+## Puts every surface back to the piece's own tint (or its original material).
+## Surface overrides only: [member MeshInstance3D.material_override] belongs to
+## the drag ghost and is never touched here.
+func _restore_surface_overrides(inst: FurnitureInstance) -> void:
+	for mi in inst.meshes():
+		if mi.mesh == null:
+			continue
+		for surface in mi.mesh.get_surface_count():
+			mi.set_surface_override_material(surface, _surface_tint_material(inst, mi, surface))
+
+
+func _surface_tint_material(inst: FurnitureInstance, mi: MeshInstance3D, surface: int) -> Material:
+	var src: Material = mi.mesh.surface_get_material(surface)
+	if src == null:
+		return null
+	var tint := inst.tint_for(src.resource_name)
+	if tint.is_equal_approx(Color.WHITE):
+		return null
+	return _tinted_material("mat:%d" % src.get_instance_id(), src, tint)
+
+
+# ---------------------------------------------------------------------------
+# World markers: hover ring, station zones, busy spinner, placement preview
+# ---------------------------------------------------------------------------
+# Everything here is presentation: runtime meshes with unshaded materials,
+# animated in real time by [method _process], never saved and never read back by
+# the simulation (invariant 11). None of it touches a piece's
+# [member MeshInstance3D.material_override] — the drag ghost owns that — the
+# hover glow is a *surface* override built from the piece's own tint and is
+# restored when the highlight goes away (a leaked override once left pieces
+# green and translucent forever).
+
+
+## Puts the pulsing hover marker on a piece (null clears it): a ring under its
+## footprint plus a soft emissive glow on the piece itself. The glow is applied
+## as a surface override built from the piece's own tint, so the piece keeps its
+## colours and gets them back untouched when the marker is cleared.
+func set_hover_highlight(inst: FurnitureInstance) -> void:
+	if inst == _hover_inst:
+		return
+	if _hover_inst != null:
+		_clear_hover_visuals()
+	_hover_inst = null
+	if inst != null and is_instance_valid(inst):
+		_hover_inst = inst
+	if _hover_inst != null:
+		_build_hover_visuals()
+	set_process(true)
+
+
+## The piece wearing the hover marker right now, or null.
+func hover_highlight() -> FurnitureInstance:
+	return _hover_inst
+
+
+func _build_hover_visuals() -> void:
+	_ensure_markers_root()
+	if _hover_ring_mat == null:
+		_hover_ring_mat = _marker_material("hover_ring", hover_ring_color, hover_ring_alpha)
+		_hover_fill_mat = _marker_material("hover_fill", hover_ring_color, hover_fill_alpha)
+	_hover_shape_key = ""
+	_hover_ring = MeshInstance3D.new()
+	_hover_ring.name = "HoverRing"
+	_hover_ring.material_override = _hover_ring_mat
+	_markers_root.add_child(_hover_ring)
+	_hover_fill = MeshInstance3D.new()
+	_hover_fill.name = "HoverFill"
+	_hover_fill.material_override = _hover_fill_mat
+	_markers_root.add_child(_hover_fill)
+	_rebuild_hover_meshes()
+	_apply_hover_glow(_hover_inst)
+	_place_hover_visuals()
+
+
+func _clear_hover_visuals() -> void:
+	if is_instance_valid(_hover_inst):
+		_restore_surface_overrides(_hover_inst)
+	_hover_glow_mats.clear()
+	if is_instance_valid(_hover_ring):
+		_hover_ring.free()
+	if is_instance_valid(_hover_fill):
+		_hover_fill.free()
+	_hover_ring = null
+	_hover_fill = null
+	_hover_shape_key = ""
+
+
+## Rebuilds the ring and plate meshes when the piece's footprint shape changes
+## (a grabbed piece can be rotated with R while the marker is on it).
+func _rebuild_hover_meshes() -> void:
+	var inst := _hover_inst
+	if inst == null or not is_instance_valid(inst) or inst.def == null:
+		return
+	var size := inst.def.resolved_footprint()
+	var shape := "%d:%d:%d" % [inst.rot_steps, size.x, size.y]
+	if shape == _hover_shape_key:
+		return
+	_hover_shape_key = shape
+	var cells := inst.footprint_cells()
+	if cells.is_empty():
+		return
+	# footprint_rect() is relative to the piece's origin, so the fill quads are
+	# built around that same origin (the mean of the footprint cells).
+	var origin := Vector2(inst.anchor) + inst.def.cell_center_offset(inst.rot_steps)
+	var rect := inst.footprint_rect()
+	var fill_st := SurfaceTool.new()
+	fill_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for c in cells:
+		var local := Vector2(c) - origin
+		_add_quad(fill_st, Vector3(local.x, 0.0, local.y), Vector2(hover_fill_size, hover_fill_size))
+	fill_st.index()
+	if _hover_fill != null:
+		_hover_fill.mesh = fill_st.commit()
+	var ring_st := SurfaceTool.new()
+	ring_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_frame(ring_st, rect.size + Vector2.ONE * hover_ring_margin * 2.0, hover_ring_width)
+	ring_st.index()
+	if _hover_ring != null:
+		_hover_ring.mesh = ring_st.commit()
+
+
+## The ring is glued to the piece, so it also follows while the piece is dragged
+## around the kitchen.
+func _place_hover_visuals() -> void:
+	if _hover_inst == null or not is_instance_valid(_hover_inst):
+		return
+	var pos := _hover_inst.position
+	if is_instance_valid(_hover_ring):
+		_hover_ring.position = Vector3(pos.x, hover_ring_height, pos.z)
+	if is_instance_valid(_hover_fill):
+		_hover_fill.position = Vector3(pos.x, hover_ring_height - 0.004, pos.z)
+
+
+## A duplicated copy of the piece's own (tinted) material with emission turned
+## on. Applied as a surface override and restored by [_restore_surface_overrides].
+func _apply_hover_glow(inst: FurnitureInstance) -> void:
+	_hover_glow_mats.clear()
 	for mi in inst.meshes():
 		if mi.mesh == null:
 			continue
 		for surface in mi.mesh.get_surface_count():
 			var src: Material = mi.mesh.surface_get_material(surface)
-			if src == null:
-				mi.set_surface_override_material(surface, null)
+			if src == null or not (src is BaseMaterial3D):
 				continue
-			var tint := inst.tint_for(src.resource_name)
-			if tint.is_equal_approx(Color.WHITE):
-				mi.set_surface_override_material(surface, null)
-			else:
-				mi.set_surface_override_material(surface, _tinted_material("mat:%d" % src.get_instance_id(), src, tint))
+			var mat := _hover_glow_material(src as BaseMaterial3D, inst.tint_for(src.resource_name))
+			if mat == null:
+				continue
+			mi.set_surface_override_material(surface, mat)
+			if not _hover_glow_mats.has(mat):
+				_hover_glow_mats.append(mat)
+
+
+func _hover_glow_material(source: BaseMaterial3D, tint: Color) -> BaseMaterial3D:
+	var cache_key := "hover:%d|%s|%s" % [
+		source.get_instance_id(), tint.to_html(), hover_glow_color.to_html()]
+	if _material_cache.has(cache_key):
+		return _material_cache[cache_key]
+	var mat := source.duplicate() as BaseMaterial3D
+	if mat == null:
+		return null
+	mat.albedo_color = mat.albedo_color * tint
+	mat.emission_enabled = true
+	mat.emission = hover_glow_color
+	mat.emission_energy_multiplier = hover_glow_energy
+	_material_cache[cache_key] = mat
+	return mat
+
+
+func _animate_hover() -> void:
+	if _hover_inst == null or not is_instance_valid(_hover_inst):
+		set_hover_highlight(null)
+		return
+	_rebuild_hover_meshes()
+	_place_hover_visuals()
+	var pulse := 0.5 + 0.5 * sin(_marker_time * TAU * hover_pulse_hz)
+	if _hover_ring_mat != null:
+		_hover_ring_mat.albedo_color.a = hover_ring_alpha * (0.55 + 0.45 * pulse)
+	if _hover_fill_mat != null:
+		_hover_fill_mat.albedo_color.a = hover_fill_alpha * (0.35 + 0.65 * pulse)
+	for mat in _hover_glow_mats:
+		if is_instance_valid(mat):
+			mat.emission_energy_multiplier = hover_glow_energy * (0.45 + 0.55 * pulse)
+
+
+# --- Zone markers (input / output decals of a zoned station) ----------------
+
+## Shows or hides the zone decals of a piece: a thin coloured tile on every
+## input / output cell declared in [member FurnitureDef.zones], with a small
+## arrow showing which way the work flows. Pieces without zones never get
+## markers and are ignored.
+func set_zone_markers(inst: FurnitureInstance, visible: bool) -> void:
+	if inst == null or not is_instance_valid(inst) or inst.def == null:
+		return
+	if inst.def.zones.is_empty():
+		return
+	var id := inst.get_instance_id()
+	if not _zone_roots.has(id):
+		_build_zone_markers(inst)
+	var entry: Dictionary = _zone_roots.get(id, {})
+	if entry.is_empty():
+		return
+	entry["visible"] = visible
+	var root: Node3D = entry["root"]
+	if is_instance_valid(root):
+		root.visible = visible and not bool(entry["grab"])
+
+
+## True when the piece owns zone decals at all (visible or not).
+func has_zone_markers(inst: FurnitureInstance) -> bool:
+	return inst != null and is_instance_valid(inst) and _zone_roots.has(inst.get_instance_id())
+
+
+## Shows or hides every zone marker at once; newly placed pieces start in the
+## state this sets (useful to clear the decals away for the day phase).
+func set_all_zone_markers(visible: bool) -> void:
+	_zone_markers_shown = visible
+	for id: int in _zone_roots.keys():
+		var entry: Dictionary = _zone_roots[id]
+		entry["visible"] = visible
+		var root: Node3D = entry["root"]
+		if is_instance_valid(root):
+			root.visible = visible and not bool(entry["grab"])
+
+
+func _build_zone_markers(inst: FurnitureInstance) -> void:
+	_ensure_markers_root()
+	var root := Node3D.new()
+	root.name = "ZoneMarkers"
+	_markers_root.add_child(root)
+	_zone_roots[inst.get_instance_id()] = {
+		"inst": inst, "root": root, "visible": _zone_markers_shown, "grab": false,
+	}
+	_refresh_zone_markers(inst)
+
+
+## Rebuilds a piece's decals where they belong now (called when the piece moves
+## or rotates) and keeps them hidden while the piece is carried.
+func _refresh_zone_markers(inst: FurnitureInstance) -> void:
+	var entry: Dictionary = _zone_roots.get(inst.get_instance_id(), {})
+	if entry.is_empty():
+		return
+	var root: Node3D = entry["root"]
+	if not is_instance_valid(root):
+		return
+	for child in root.get_children():
+		child.free()
+	root.position = inst.position
+	_add_zone_decals(root, inst)
+	root.visible = bool(entry["visible"]) and not bool(entry["grab"])
+
+
+func _set_zone_markers_grabbed(inst: FurnitureInstance, grabbed: bool) -> void:
+	var entry: Dictionary = _zone_roots.get(inst.get_instance_id(), {})
+	if entry.is_empty():
+		return
+	entry["grab"] = grabbed
+	var root: Node3D = entry["root"]
+	if is_instance_valid(root):
+		root.visible = bool(entry["visible"]) and not grabbed
+
+
+func _drop_zone_markers(inst: FurnitureInstance) -> void:
+	var id := inst.get_instance_id()
+	var entry: Dictionary = _zone_roots.get(id, {})
+	if entry.is_empty():
+		return
+	var root: Node3D = entry["root"]
+	if is_instance_valid(root):
+		root.free()
+	_zone_roots.erase(id)
+
+
+func _add_zone_decals(root: Node3D, inst: FurnitureInstance) -> void:
+	if _zone_quad == null:
+		_zone_quad = _quad_mesh(zone_decal_size)
+		_zone_arrow = _arrow_mesh(zone_arrow_size)
+	var cells := inst.footprint_cells()
+	if cells.is_empty():
+		return
+	var centre := Vector2.ZERO
+	for c in cells:
+		centre += Vector2(c)
+	centre /= float(cells.size())
+	# The arrows point along the flow: into the station on the input side, out
+	# of it on the output side. The work cell (if declared) is the middle.
+	var focus := centre
+	for zone in inst.def.zones:
+		if str(zone.get("role", "")) == "work":
+			var work_offset: Vector2i = zone.get("offset", Vector2i.ZERO)
+			focus = Vector2(inst.anchor + FurnitureDef.rotated_offset(work_offset, inst.rot_steps))
+			break
+	for zone in inst.def.zones:
+		var role := str(zone.get("role", ""))
+		if role != "input" and role != "output":
+			continue
+		var offset: Vector2i = zone.get("offset", Vector2i.ZERO)
+		var cell: Vector2i = inst.anchor + FurnitureDef.rotated_offset(offset, inst.rot_steps)
+		var colour := zone_input_color if role == "input" else zone_output_color
+		var local := cell_to_world(cell) - root.position
+		# A decal on the floor would be swallowed by the piece itself (a table
+		# covers its whole footprint), so zoned stations wear their tiles on the
+		# work surface, just under where the items sit.
+		var y := maxf(zone_decal_height, surface_height(cell) + zone_decal_clearance)
+		var decal := MeshInstance3D.new()
+		decal.name = "Zone_%s" % role
+		decal.mesh = _zone_quad
+		decal.material_override = _marker_material("zone_%s" % role, colour, zone_decal_alpha)
+		decal.position = local + Vector3(0.0, y, 0.0)
+		root.add_child(decal)
+		var dir := (focus - Vector2(cell)) if role == "input" else (Vector2(cell) - focus)
+		if dir.length_squared() < 0.0001:
+			dir = Vector2(1.0, 0.0)
+		var arrow := MeshInstance3D.new()
+		arrow.name = "Zone_%s_arrow" % role
+		arrow.mesh = _zone_arrow
+		arrow.material_override = _marker_material(
+			"zone_%s_arrow" % role, colour, minf(zone_decal_alpha * 2.0, 1.0))
+		arrow.position = local + Vector3(0.0, y + 0.012, 0.0)
+		arrow.rotation_degrees = Vector3(0.0, rad_to_deg(atan2(-dir.y, dir.x)), 0.0)
+		root.add_child(arrow)
+
+
+# --- Busy spinner (a station a worker is operating) -------------------------
+
+## Puts a rotating spinner above a station while it is in use, or takes it away
+## again. [param station_cells] is the station's footprint
+## ([member StationInstance.cells]); the spinner hovers over its middle, just
+## above the work surface, and faces the camera. Several stations can be busy at
+## once — each cell set keeps its own spinner.
+func set_station_busy_marker(station_cells: Array, busy: bool) -> void:
+	var cells: Array[Vector2i] = []
+	for c: Vector2i in station_cells:
+		cells.append(c)
+	if cells.is_empty():
+		if not busy:
+			clear_station_markers()
+		return
+	var key := _station_key(cells)
+	if busy:
+		if _spinners.has(key):
+			return
+		_spinners[key] = _make_spinner(cells)
+		set_process(true)
+	elif _spinners.has(key):
+		_free_spinner(key)
+
+
+## Removes every busy spinner (a day ending / a phase change leaves none behind).
+func clear_station_markers() -> void:
+	for key: String in _spinners.keys():
+		_free_spinner(key)
+
+
+## True while a spinner hovers over this cell set.
+func has_station_busy_marker(station_cells: Array) -> bool:
+	var cells: Array[Vector2i] = []
+	for c: Vector2i in station_cells:
+		cells.append(c)
+	if cells.is_empty():
+		return false
+	return _spinners.has(_station_key(cells))
+
+
+## Stable key for a cell set, so two stations never share a spinner.
+static func _station_key(cells: Array[Vector2i]) -> String:
+	var sorted: Array[Vector2i] = []
+	for c in cells:
+		sorted.append(c)
+	sorted.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		if a.y != b.y:
+			return a.y < b.y
+		return a.x < b.x)
+	var parts := PackedStringArray()
+	for c in sorted:
+		parts.append("%d,%d" % [c.x, c.y])
+	return "|".join(parts)
+
+
+func _make_spinner(cells: Array[Vector2i]) -> Dictionary:
+	_ensure_markers_root()
+	if _spinner_mesh == null:
+		_spinner_mesh = _arc_mesh(busy_marker_radius, busy_marker_width, busy_marker_arc_deg, 16)
+	var root := Node3D.new()
+	root.name = "BusyMarker"
+	_markers_root.add_child(root)
+	var arc := MeshInstance3D.new()
+	arc.name = "Arc"
+	arc.mesh = _spinner_mesh
+	arc.material_override = _marker_material("busy", busy_marker_color, busy_marker_alpha)
+	root.add_child(arc)
+	var centre := Vector3.ZERO
+	var top := 0.0
+	for cell in cells:
+		centre += cell_to_world(cell)
+		top = maxf(top, surface_height(cell))
+	centre /= float(cells.size())
+	var base_y := top + busy_marker_height
+	root.position = Vector3(centre.x, base_y, centre.z)
+	var phase := float(_spinners.size()) * 0.9
+	arc.rotation_degrees = Vector3(0.0, 0.0, phase)
+	return {"node": root, "arc": arc, "base_y": base_y, "phase": phase}
+
+
+func _free_spinner(key: String) -> void:
+	var info: Dictionary = _spinners.get(key, {})
+	_spinners.erase(key)
+	if info.is_empty():
+		return
+	var node: Node3D = info["node"]
+	if is_instance_valid(node):
+		node.free()
+
+
+func _animate_spinners(delta: float) -> void:
+	_spin_angle = fmod(_spin_angle + busy_marker_speed * delta, 360.0)
+	var cam := get_viewport().get_camera_3d()
+	for key: String in _spinners.keys():
+		var info: Dictionary = _spinners[key]
+		var node: Node3D = info["node"]
+		if not is_instance_valid(node):
+			_spinners.erase(key)
+			continue
+		var phase := float(info["phase"])
+		var arc: Node3D = info["arc"]
+		if is_instance_valid(arc):
+			arc.rotation_degrees = Vector3(0.0, 0.0, _spin_angle + phase)
+		var bob := sin(_marker_time * TAU * busy_marker_bob_hz + phase) * busy_marker_bob
+		var pos := node.position
+		node.position = Vector3(pos.x, float(info["base_y"]) + bob, pos.z)
+		if cam != null:
+			_face_camera(node, cam)
+
+
+## Turns the node's +Z axis towards the camera (so the arc plane always faces
+## the player), with a fallback up axis for a camera looking straight down.
+static func _face_camera(node: Node3D, cam: Camera3D) -> void:
+	var to_cam := cam.global_position - node.global_position
+	if to_cam.length_squared() < 0.000001:
+		return
+	var z := to_cam.normalized()
+	var up := Vector3.UP
+	if absf(z.dot(up)) > 0.999:
+		up = Vector3.FORWARD
+	var x := up.cross(z)
+	if x.length_squared() < 0.000001:
+		return
+	x = x.normalized()
+	var y := z.cross(x)
+	node.global_transform = Transform3D(Basis(x, y, z), node.global_position)
+
+
+# --- Placement preview (the placer's footprint highlight) -------------------
+
+## The build-phase placement preview: a soft fill on every cell the piece would
+## take plus an outline around the whole footprint, green when the spot is free
+## and red when it is not. This replaces the placer's own box highlight — call it
+## from [method PlaceController._update_highlights] instead of building meshes,
+## and [method clear_placement_preview] when the cursor leaves the grid. The
+## mesh is only rebuilt when the cell set or the verdict changes.
+func set_placement_preview(cells: Array, valid: bool) -> void:
+	var list: Array[Vector2i] = []
+	for c: Vector2i in cells:
+		list.append(c)
+	if list.is_empty():
+		clear_placement_preview()
+		return
+	if list == _preview_cells and valid == _preview_valid and is_instance_valid(_preview_fill):
+		return
+	_preview_cells = list
+	_preview_valid = valid
+	_ensure_markers_root()
+	if _preview_fill_mat == null:
+		_preview_fill_mat = _marker_material("preview_fill", preview_valid_color, preview_fill_alpha)
+		_preview_outline_mat = _marker_material("preview_outline", preview_valid_color, preview_outline_alpha)
+	var tint := preview_valid_color if valid else preview_invalid_color
+	_preview_fill_mat.albedo_color = Color(tint.r, tint.g, tint.b, preview_fill_alpha)
+	_preview_outline_mat.albedo_color = Color(tint.r, tint.g, tint.b, preview_outline_alpha)
+	var rect := _cells_rect(list)
+	var centre := rect.get_center()
+	var fill_st := SurfaceTool.new()
+	fill_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for c in list:
+		var local := Vector2(c) - centre
+		_add_quad(fill_st, Vector3(local.x, 0.0, local.y), Vector2(preview_fill_size, preview_fill_size))
+	fill_st.index()
+	if not is_instance_valid(_preview_fill):
+		_preview_fill = MeshInstance3D.new()
+		_preview_fill.name = "PlacementFill"
+		_preview_fill.material_override = _preview_fill_mat
+		_markers_root.add_child(_preview_fill)
+	_preview_fill.mesh = fill_st.commit()
+	_preview_fill.position = Vector3(centre.x, preview_height, centre.y)
+	var outline_st := SurfaceTool.new()
+	outline_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_frame(outline_st, rect.size + Vector2.ONE * preview_margin * 2.0, preview_outline_width)
+	outline_st.index()
+	if not is_instance_valid(_preview_outline):
+		_preview_outline = MeshInstance3D.new()
+		_preview_outline.name = "PlacementOutline"
+		_preview_outline.material_override = _preview_outline_mat
+		_markers_root.add_child(_preview_outline)
+	_preview_outline.mesh = outline_st.commit()
+	_preview_outline.position = Vector3(centre.x, preview_height + 0.004, centre.y)
+
+
+## Takes the placement preview away (cursor off the grid, piece placed).
+func clear_placement_preview() -> void:
+	_preview_cells.clear()
+	if is_instance_valid(_preview_fill):
+		_preview_fill.free()
+	if is_instance_valid(_preview_outline):
+		_preview_outline.free()
+	_preview_fill = null
+	_preview_outline = null
+
+
+# --- Marker plumbing --------------------------------------------------------
+
+func _ensure_markers_root() -> void:
+	if is_instance_valid(_markers_root):
+		return
+	_markers_root = Node3D.new()
+	_markers_root.name = "Markers"
+	add_child(_markers_root)
+
+
+## Drops every marker (hover, zones, spinners, preview) and forgets them; called
+## whenever the kitchen is rebuilt from the layout.
+func _clear_markers() -> void:
+	if _hover_inst != null:
+		set_hover_highlight(null)
+	_hover_inst = null
+	_hover_glow_mats.clear()
+	_hover_ring = null
+	_hover_fill = null
+	_hover_shape_key = ""
+	_zone_roots.clear()
+	_spinners.clear()
+	_preview_cells.clear()
+	_preview_fill = null
+	_preview_outline = null
+	if is_instance_valid(_markers_root):
+		_markers_root.free()
+	_markers_root = null
+	set_process(false)
+
+
+## Flat unshaded decal material (alpha blended, no culling), cached by look.
+func _marker_material(key: String, color: Color, alpha: float) -> StandardMaterial3D:
+	var cache_key := "marker:%s|%s|%.2f" % [key, color.to_html(), alpha]
+	if _material_cache.has(cache_key):
+		return _material_cache[cache_key]
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(color.r, color.g, color.b, alpha)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_material_cache[cache_key] = mat
+	return mat
+
+
+## Bounding rect of a cell set in cell units (a cell is 1 x 1 centred on its
+## coordinate; the rect's y is the grid's z).
+static func _cells_rect(cells: Array[Vector2i]) -> Rect2:
+	var mn := Vector2(cells[0])
+	var mx := Vector2(cells[0])
+	for c in cells:
+		mn.x = minf(mn.x, float(c.x))
+		mn.y = minf(mn.y, float(c.y))
+		mx.x = maxf(mx.x, float(c.x))
+		mx.y = maxf(mx.y, float(c.y))
+	return Rect2(mn - Vector2(0.5, 0.5), mx - mn + Vector2.ONE)
+
+
+## A flat quad in the XZ plane, centred on the origin.
+static func _quad_mesh(size: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_quad(st, Vector3.ZERO, Vector2(size, size))
+	st.index()
+	return st.commit()
+
+
+## A flat frame (four bands) in the XZ plane, centred on the origin.
+static func _add_frame(st: SurfaceTool, outer: Vector2, thickness: float) -> void:
+	var hx := outer.x * 0.5
+	var hz := outer.y * 0.5
+	var t := minf(thickness, minf(outer.x, outer.y) * 0.5)
+	_add_quad(st, Vector3(0.0, 0.0, -hz + t * 0.5), Vector2(outer.x, t))
+	_add_quad(st, Vector3(0.0, 0.0, hz - t * 0.5), Vector2(outer.x, t))
+	_add_quad(st, Vector3(-hx + t * 0.5, 0.0, 0.0), Vector2(t, maxf(outer.y - t * 2.0, 0.0)))
+	_add_quad(st, Vector3(hx - t * 0.5, 0.0, 0.0), Vector2(t, maxf(outer.y - t * 2.0, 0.0)))
+
+
+## A flat triangle pointing along +X in the XZ plane (a flow arrow).
+static func _arrow_mesh(size: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.add_vertex(Vector3(size * 0.5, 0.0, 0.0))
+	st.add_vertex(Vector3(-size * 0.35, 0.0, -size * 0.42))
+	st.add_vertex(Vector3(-size * 0.35, 0.0, size * 0.42))
+	st.index()
+	return st.commit()
+
+
+## A flat arc (plus a dot at its leading end) in the XY plane: the busy spinner.
+static func _arc_mesh(radius: float, width: float, degrees: float, segments: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var inner := maxf(radius - width * 0.5, 0.01)
+	var outer := radius + width * 0.5
+	var steps := maxi(segments, 2)
+	var span := deg_to_rad(degrees)
+	for i in steps:
+		var a0 := span * float(i) / float(steps)
+		var a1 := span * float(i + 1) / float(steps)
+		var p0i := Vector3(cos(a0), sin(a0), 0.0) * inner
+		var p0o := Vector3(cos(a0), sin(a0), 0.0) * outer
+		var p1i := Vector3(cos(a1), sin(a1), 0.0) * inner
+		var p1o := Vector3(cos(a1), sin(a1), 0.0) * outer
+		st.add_vertex(p0i)
+		st.add_vertex(p0o)
+		st.add_vertex(p1o)
+		st.add_vertex(p0i)
+		st.add_vertex(p1o)
+		st.add_vertex(p1i)
+	# Leading dot: makes the rotation obvious even when the arc is edge-on.
+	var dot := Vector3(cos(span), sin(span), 0.0) * radius
+	var r := width * 0.7
+	for i in 8:
+		var a0 := TAU * float(i) / 8.0
+		var a1 := TAU * float(i + 1) / 8.0
+		st.add_vertex(dot)
+		st.add_vertex(dot + Vector3(cos(a0), sin(a0), 0.0) * r)
+		st.add_vertex(dot + Vector3(cos(a1), sin(a1), 0.0) * r)
+	st.index()
+	return st.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -854,6 +1615,11 @@ func _undo_one(entry: Dictionary) -> bool:
 			var inst := _find_entry_instance(entry.entry)
 			if inst != null:
 				remove_furniture(inst, false)
+				# Ctrl+Z on a purchase hands the money back with the piece.
+				if entry.get("paid", false) and wallet != null:
+					var bought := FurnitureCatalog.find(entry.entry.get("id", &""))
+					if bought != null:
+						wallet.add_money(bought.cost)
 		"furniture_remove":
 			var def := FurnitureCatalog.find(entry.entry.get("id", &""))
 			if def != null:

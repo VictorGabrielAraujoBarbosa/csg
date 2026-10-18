@@ -278,7 +278,7 @@ func _try_place() -> void:
 		if not service.orders.try_spend(def.cost):
 			return
 		spent = true
-	var placed := kitchen.place_furniture(def, _hover_cell, rot_steps)
+	var placed := kitchen.place_furniture(def, _hover_cell, rot_steps, {}, true, spent)
 	if placed != null:
 		# Only a piece the player actually paid for sells back later.
 		placed.paid = spent

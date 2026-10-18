@@ -56,6 +56,8 @@ var _summary: PanelContainer
 var _summary_label: Label
 var _cards: Dictionary = {}
 var _horror_running := false
+## Who owns the shop status line ("afford" / "hint"), so it can be cleared safely.
+var _status_owner := ""
 var _players: Array[AudioStreamPlayer] = []
 var _player_index := 0
 var _streams: Dictionary = {}
@@ -258,6 +260,7 @@ func _build_catalog() -> void:
 		var tab := Button.new()
 		tab.text = "All" if category == &"" else FurnitureCatalog.category_label(category)
 		tab.toggle_mode = true
+		tab.focus_mode = Control.FOCUS_NONE
 		tab.button_group = _tab_group
 		tab.button_pressed = category == &""
 		tab.custom_minimum_size = Vector2(84, 26)
@@ -330,6 +333,7 @@ func _rebuild_shop(category: StringName) -> void:
 		button.icon = _icon(def)
 		button.add_theme_constant_override("icon_max_width", 34)
 		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE
 		button.set_meta("cost", def.cost)
 		button.set_meta("id", def.id)
 		button.pressed.connect(_on_catalog_pressed.bind(def.id))
@@ -385,6 +389,7 @@ func _build_summary() -> void:
 	_summary_label.add_theme_font_size_override("font_size", 20)
 	column.add_child(_summary_label)
 	var next := Button.new()
+	next.name = "NextDay"
 	next.text = "Next day"
 	next.custom_minimum_size = Vector2(200, 48)
 	next.pressed.connect(_on_next_day_pressed)
@@ -560,6 +565,9 @@ func _on_start_pressed() -> void:
 
 func _on_next_day_pressed() -> void:
 	_play(CLICK_SOUND)
+	if day != null and day.run_over:
+		get_tree().reload_current_scene()
+		return
 	if day != null:
 		day.finish_day()
 
@@ -570,12 +578,18 @@ func _on_placer_selection(_text: String) -> void:
 
 func _on_hint(text: String) -> void:
 	_catalog_status.text = text
+	_status_owner = "hint"
 
 
 func _on_day_finished(summary: Dictionary) -> void:
 	var tail := ""
-	if bool(summary.get("lost", false)):
+	if bool(summary.get("run_over", false)):
+		tail = "\n\nTHE RESTAURANT IS CLOSED\nNot enough money to rehire the staff ($%d)." % int(summary.get("rehire_fee", 0))
+	elif bool(summary.get("lost", false)):
 		tail = "\n" + str(summary.get("reason", ""))
+		if int(summary.get("eaten", 0)) > 0:
+			tail += "\n%d workers eaten — rehiring them costs $%d." % [
+				int(summary.get("eaten", 0)), int(summary.get("rehire_fee", 0))]
 	elif day != null:
 		tail = "\n" + day.next_day_hint()
 	_summary_label.text = "Day %d %s\n\nOrders served: %d\nMoney: $%d%s" % [
@@ -584,6 +598,9 @@ func _on_day_finished(summary: Dictionary) -> void:
 		int(summary.get("served", 0)),
 		int(summary.get("money", 0)),
 		tail]
+	var next_button := _summary.get_node_or_null("NextDay") as Button
+	if next_button != null:
+		next_button.text = "Start over" if bool(summary.get("run_over", false)) else "Next day"
 	if bool(summary.get("lost", false)) and _horror_running:
 		_finish_horror_cutscene(summary)
 	else:
@@ -606,21 +623,30 @@ func _on_mob_started(edges: Array) -> void:
 	cutscene.begin()
 	cutscene.set_slow_motion(service, HORROR_SLOW_MOTION)
 	_play_music(MUSIC_HORROR, 0.4)
-	_play(GLASS_SOUND)
+	_play(GLASS_SOUND, -6.0)
 	await cutscene.letterbox(true, 0.4)
 	if not edges.is_empty():
 		var edge: Vector3i = edges[0]
 		await cutscene.focus_cell(Vector2i(edge.x, edge.y), 9.5, 0.9)
 	await cutscene.vignette(0.55, 1.0)
 	await cutscene.shake(0.12, 0.35)
+	if not service.customers.is_empty():
+		await cutscene.follow(service.customers[0], 0.6)
 	# Let the chase play out (skippable), then hold on the empty kitchen.
 	while service != null and service.mob_active and cutscene != null \
 			and not cutscene.skip_requested():
 		await get_tree().create_timer(0.15).timeout
 	if cutscene == null:
 		return
-	if service != null and not service.workers.is_empty():
-		await cutscene.focus_cell(service.workers[0].spawn_cell, 12.0, 0.8)
+	# The mob may have finished off the staff: always pan back to the room so the
+	# player sees the aftermath instead of a wall.
+	cutscene.release_follow()
+	var look_at := Vector2i(6, 5)
+	if kitchen != null:
+		var bounds := kitchen.get_world_bounds()
+		if bounds.size != Vector2.ZERO:
+			look_at = Vector2i(roundi(bounds.get_center().x), roundi(bounds.get_center().y))
+	await cutscene.focus_cell(look_at, 15.0, 1.0)
 
 
 func _finish_horror_cutscene(summary: Dictionary) -> void:
@@ -658,8 +684,11 @@ func _refresh_money() -> void:
 		if def != null and def.cost > 0 and not service.orders.can_afford(def.cost):
 			_catalog_status.text = "Need $%d more for the %s" % [
 				def.cost - service.orders.money, def.display_name]
-		elif _catalog_status.text.begins_with("Not enough money"):
+			_status_owner = "afford"
+		elif _status_owner == "afford":
+			# Only our own line is cleared; a designer hint keeps its own life.
 			_catalog_status.text = ""
+			_status_owner = ""
 
 
 # ---------------------------------------------------------------------------
@@ -679,7 +708,7 @@ func _audio_bank() -> Node:
 	return world.get_node_or_null("Fx/AudioBank")
 
 
-func _play(path: String) -> void:
+func _play(path: String, volume_db := -15.0) -> void:
 	if _players.is_empty():
 		return
 	if not _streams.has(path):
@@ -687,6 +716,7 @@ func _play(path: String) -> void:
 	var player := _players[_player_index]
 	_player_index = (_player_index + 1) % _players.size()
 	player.stream = _streams[path]
+	player.volume_db = volume_db
 	player.play()
 
 

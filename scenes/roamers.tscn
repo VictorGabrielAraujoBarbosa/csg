@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/fx/roamers.gd" id="1_roamers"]
+
+[node name="Roamers" type="Node3D"]
+script = ExtResource("1_roamers")
+service_path = NodePath("../Service")
+kitchen_path = NodePath("../Kitchen")
+day_path = NodePath("../DayController")
+audio_path = NodePath("../Fx/AudioBank")

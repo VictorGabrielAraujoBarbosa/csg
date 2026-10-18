@@ -30,10 +30,16 @@ static func generate(day_number: int, seed_value_in: int, menu: Array, modifier_
 			dish = menu[rng.randi_range(0, menu.size() - 1)]
 		var adds: Array[StringName] = []
 		var removes: Array[StringName] = []
+		var touched: Array[StringName] = []
 		for id: StringName in _roll_modifiers(rng, modifier_ids, max_mods):
 			var def := ModifierCatalog.find(id)
 			if def == null:
 				continue
+			# "+ extra cheese" and "- no cheese" on one ticket is nonsense: a
+			# modifier whose ingredient is already spoken for is skipped.
+			if touched.has(def.item):
+				continue
+			touched.append(def.item)
 			if def.kind == ModifierDef.Kind.ADD:
 				adds.append(id)
 			else:

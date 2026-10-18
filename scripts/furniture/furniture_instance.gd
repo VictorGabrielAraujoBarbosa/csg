@@ -50,6 +50,24 @@ func footprint_cells() -> Array[Vector2i]:
 	return def.cells(anchor, rot_steps)
 
 
+## World-space rectangle (x/z, in cell units) covered by the piece's footprint,
+## relative to [member position] — the piece's origin is the footprint's centre,
+## so this is what outline markers and hover rings are built from.
+func footprint_rect() -> Rect2:
+	var cells := footprint_cells()
+	if cells.is_empty():
+		return Rect2(Vector2(-0.5, -0.5), Vector2.ONE)
+	var mn := Vector2(cells[0])
+	var mx := Vector2(cells[0])
+	for c in cells:
+		mn.x = minf(mn.x, float(c.x))
+		mn.y = minf(mn.y, float(c.y))
+		mx.x = maxf(mx.x, float(c.x))
+		mx.y = maxf(mx.y, float(c.y))
+	var origin := Vector2(anchor) + def.cell_center_offset(rot_steps)
+	return Rect2(mn - Vector2(0.5, 0.5) - origin, mx - mn + Vector2.ONE)
+
+
 ## Sets (or clears, with white) the colour of one material group.
 func set_tint(material_name: String, color: Color) -> void:
 	if color.is_equal_approx(Color.WHITE):

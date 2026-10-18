@@ -119,6 +119,7 @@ func _build_panel() -> void:
 		button.custom_minimum_size = Vector2(126, 26)
 		button.add_theme_font_size_override("font_size", 12)
 		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE
 		button.pressed.connect(_on_tool_pressed.bind(i))
 		_tool_grid.add_child(button)
 		_tool_buttons.append(button)
