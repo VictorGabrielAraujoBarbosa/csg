@@ -34,6 +34,10 @@ var parent: Job
 ## consuming job that needs this dish. The output item is reserved for it the
 ## moment it is spawned, so another order cannot take it.
 var reserved_output_for: Job = null
+## The exact items this produce job will consume, claimed when it is assigned.
+## Re-gathering at completion time used to find the world changed underneath
+## ("a job lost its inputs"); a claim cannot be taken away.
+var claimed_inputs: Array = []
 var location := Vector2i.ZERO
 var fail_reason := ""
 

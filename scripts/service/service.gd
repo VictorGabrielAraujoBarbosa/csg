@@ -520,6 +520,20 @@ func finish_transfer(job: Job) -> void:
 	_log("carried %s -> %s" % [item.def.id, job.target_cell])
 
 
+## Takes hold of the exact items a produce job will consume, so no other job can
+## take them while it walks over and works.
+func _claim_inputs(job: Job) -> void:
+	var inputs: Variant = gather_inputs(job)
+	if inputs == null:
+		return
+	job.claimed_inputs = inputs
+	for entry in job.claimed_inputs:
+		for item: WorldItem in entry.items:
+			item.reserved_by = job
+			if not job.reserved_items.has(item):
+				job.reserved_items.append(item)
+
+
 ## A produce job finished: consume the inputs, spawn the outputs, run effects.
 func finish_produce(job: Job, worker: Worker = null) -> void:
 	if job.station != null:
