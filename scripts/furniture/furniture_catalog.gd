@@ -77,15 +77,15 @@ static func build() -> Array[FurnitureDef]:
 		"Fries potatoes. Without one you cannot serve + fries orders."))
 	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"stations", true,
 		"Where the finished dish is put together."))
-	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["prep", "surface"], &"surfaces", true,
-		"Prep surface: salads and cheese slices are made here."))
+	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["surface"], &"surfaces", true,
+		"A plain work surface: somewhere to put things down. Salads and cheese slices need a cutting table."))
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
 	# with none of these cannot cook at all.
 	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"]))
 	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"]))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
-		["prep", "surface"], 0.9, "Prep surface with a board and knife: salads and cheese slices."))
+		["prep", "surface"], 0.9, "Board and knife: salads and cheese slices are made here."))
 	out.append(_make_prop("plating_station", "Plating Station", "plating_station.tscn", Vector2i(1, 1), 110,
 		["prep", "surface"], 0.9, "Trays and plates, ready for the line."))
 	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 60, ["worker"], &"workers", true,

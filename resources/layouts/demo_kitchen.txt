@@ -32,7 +32,7 @@ delivery 12 3
 counter 2 1 0
 stove 3 1 0
 sink 4 1 0
-counter 5 1 0
+cutting_table 5 1 0
 fridge 6 1 0
 shelf 1 2 0
 assembly_table 9 4 0

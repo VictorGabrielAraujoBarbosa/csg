@@ -180,7 +180,9 @@ func _input(event: InputEvent) -> void:
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is SpinBox:
 		return  # typing in the designer's map name field
-	world.push_input(event, true)
+	# A copy: pushing the original marks it handled, which would stop the dev
+	# keys (M for the level designer, F1 for the overlay) from ever arriving.
+	world.push_input(event.duplicate(), true)
 
 
 func _on_frame_input(event: InputEvent) -> void:
@@ -188,7 +190,9 @@ func _on_frame_input(event: InputEvent) -> void:
 		return
 	# _gui_input positions are already relative to this control, which matches
 	# the viewport's coordinate space 1:1.
-	world.push_input(event, true)
+	# A copy: pushing the original marks it handled, which would stop the dev
+	# keys (M for the level designer, F1 for the overlay) from ever arriving.
+	world.push_input(event.duplicate(), true)
 
 
 func _build_top_bar() -> void:

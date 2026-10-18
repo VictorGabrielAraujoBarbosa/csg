@@ -99,10 +99,10 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 @export var work_marker_height := 0.03
 
 @export_group("Zone markers")
-## Decal colour of a station's input cells.
-@export var zone_input_color := Color(0.25, 0.6, 1.0)
-## Decal colour of a station's output cells.
-@export var zone_output_color := Color(1.0, 0.65, 0.12)
+## Decal colour of a station's input cells (matches the order intake table).
+@export var zone_input_color := Color(1.0, 0.82, 0.05)
+## Decal colour of a station's output cells (matches the delivery table).
+@export var zone_output_color := Color(0.15, 0.9, 0.3)
 ## Height the zone decals float above the floor when the piece has no surface
 ## (metres). On a piece with a work surface the decals ride on top of it instead,
 ## so a table never hides its own zone tiles.
