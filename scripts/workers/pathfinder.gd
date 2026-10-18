@@ -9,7 +9,10 @@ const NO_PATH: Array[Vector2i] = []
 
 ## Returns the path from [param from] to [param to] (inclusive), or an empty
 ## array when there is no way through.
-static func find_path(kitchen: Kitchen, from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+## [param avoid] holds cells to route around (tiles a worker is operating from).
+## The caller MUST be ready to retry without it: avoidance can make a target
+## unreachable, and a fallback is what keeps this from ever blocking anyone.
+static func find_path(kitchen: Kitchen, from: Vector2i, to: Vector2i, avoid: Array = []) -> Array[Vector2i]:
 	if kitchen == null:
 		return NO_PATH
 	if from == to:
@@ -37,6 +40,8 @@ static func find_path(kitchen: Kitchen, from: Vector2i, to: Vector2i) -> Array[V
 			var next: Vector2i = current + step
 			if not kitchen.is_walkable(next):
 				continue
+			if next != to and avoid.has(next):
+				continue
 			if not kitchen.can_cross(current, next):
 				continue
 			var tentative: int = g[current] + 1
@@ -51,12 +56,14 @@ static func find_path(kitchen: Kitchen, from: Vector2i, to: Vector2i) -> Array[V
 
 ## A walkable cell adjacent to [param target] (preferring one closest to
 ## [param from]), or a sentinel when the target is unreachable by standing.
-static func adjacent_walkable(kitchen: Kitchen, target: Vector2i, from: Vector2i) -> Vector2i:
+static func adjacent_walkable(kitchen: Kitchen, target: Vector2i, from: Vector2i, avoid: Array = []) -> Vector2i:
 	var best := Vector2i(-2147483647, -2147483647)
 	var best_dist := 1 << 30
 	for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		var cell: Vector2i = target + step
 		if not kitchen.is_walkable(cell):
+			continue
+		if avoid.has(cell):
 			continue
 		if not kitchen.data.can_cross(target, cell):
 			continue

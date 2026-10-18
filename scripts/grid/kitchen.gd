@@ -86,6 +86,16 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 ## Pulses per second of the hover marker (real time, never ticks).
 @export var hover_pulse_hz := 1.5
 
+@export_group("Work tiles")
+## Colour of the tiles a worker can stand on to operate a hovered piece.
+@export var work_marker_color := Color(0.55, 0.95, 0.75)
+## Alpha of the work-tile tiles.
+@export var work_marker_alpha := 0.45
+## Size of one work-tile marker (metres).
+@export var work_marker_size := 0.86
+## Height the work-tile markers float at (metres).
+@export var work_marker_height := 0.03
+
 @export_group("Zone markers")
 ## Decal colour of a station's input cells.
 @export var zone_input_color := Color(0.25, 0.6, 1.0)
@@ -167,6 +177,9 @@ var _undo_stack: Array = []
 # Presentation only: all of them live under _markers_root and are animated in
 # real time by _process; the simulation never reads them back.
 var _markers_root: Node3D
+## Reusable root for the "workers stand here" tiles (only one piece is hovered).
+var _work_root: Node3D
+var _work_key := ""
 var _marker_time := 0.0
 var _hover_inst: FurnitureInstance = null
 var _hover_ring: MeshInstance3D = null
@@ -1167,6 +1180,40 @@ static func _face_camera(node: Node3D, cam: Camera3D) -> void:
 ## from [method PlaceController._update_highlights] instead of building meshes,
 ## and [method clear_placement_preview] when the cursor leaves the grid. The
 ## mesh is only rebuilt when the cell set or the verdict changes.
+## The tiles a worker can stand on to operate a piece, shown while the player
+## hovers or drags it. Purely presentational: pass an empty array to clear.
+func set_work_markers(cells: Array, visible: bool) -> void:
+	if not visible or cells.is_empty():
+		if is_instance_valid(_work_root):
+			_work_root.visible = false
+		_work_key = ""
+		return
+	_ensure_markers_root()
+	if _markers_root == null:
+		return
+	if not is_instance_valid(_work_root) or _work_root.get_parent() != _markers_root:
+		_work_root = Node3D.new()
+		_work_root.name = "WorkTiles"
+		_markers_root.add_child(_work_root)
+		_work_key = ""
+	var key := ""
+	for c: Vector2i in cells:
+		key += "%d,%d;" % [c.x, c.y]
+	if key != _work_key:
+		_work_key = key
+		for child in _work_root.get_children():
+			child.free()
+		var quad := _quad_mesh(work_marker_size)
+		var mat := _marker_material("work", work_marker_color, work_marker_alpha)
+		for c: Vector2i in cells:
+			var mi := MeshInstance3D.new()
+			mi.mesh = quad
+			mi.material_override = mat
+			mi.position = cell_to_world(c) + Vector3(0.0, work_marker_height, 0.0)
+			_work_root.add_child(mi)
+	_work_root.visible = true
+
+
 func set_placement_preview(cells: Array, valid: bool) -> void:
 	var list: Array[Vector2i] = []
 	for c: Vector2i in cells:

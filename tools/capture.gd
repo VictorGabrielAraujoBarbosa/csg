@@ -761,6 +761,12 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(window_piece != null, "the native window piece loads")
 	if window_piece != null:
 		window_piece.free()
+	# --- work tiles: the tiles a worker can operate a piece from ---
+	kitchen.set_work_markers([Vector2i(2, 2), Vector2i(3, 2)], true)
+	_expect(kitchen._work_root != null and kitchen._work_root.visible
+		and kitchen._work_root.get_child_count() == 2, "work tiles: markers show for the given cells")
+	kitchen.set_work_markers([], false)
+	_expect(not kitchen._work_root.visible, "work tiles: they clear again")
 	# --- level designer I/O: blank maps, save, load ---
 	var blank := KitchenLayout.blank(Vector2i(6, 5))
 	_expect(blank.floors.size() == 30, "designer: a blank map is all floor (30 cells)")
@@ -822,6 +828,19 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			placer2._process(0.016)
 			_expect(placer2._has_hover, "ui: the placement controller picks up the forwarded mouse")
 			placer2._hide()
+			# Keyboard events must reach the controllers inside the SubViewport:
+			# rotate, Esc and the map editor's tool keys depend on it.
+			placer2.set_process_unhandled_input(true)
+			placer2.has_selection = true
+			var before_rot := placer2.rot_steps
+			var key := InputEventKey.new()
+			key.physical_keycode = KEY_R
+			key.pressed = true
+			ui._input(key)
+			_expect(placer2.rot_steps != before_rot,
+				"ui: R reaches the placement controller through the viewport")
+			placer2.has_selection = false
+			placer2.set_process_unhandled_input(false)
 	# --- map paint controller ---
 	var painter := scene.find_child("MapPaintController", true, false) as MapPaintController
 	if painter != null:

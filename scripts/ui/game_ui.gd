@@ -58,9 +58,17 @@ var _cards: Dictionary = {}
 var _horror_running := false
 ## Who owns the shop status line ("afford" / "hint"), so it can be cleared safely.
 var _status_owner := ""
+## Instance id of the piece whose work tiles are currently shown (0 = none).
+var _work_marker_key := 0
 var _players: Array[AudioStreamPlayer] = []
 var _player_index := 0
 var _streams: Dictionary = {}
+
+
+## Only the work-tile indicator needs per-frame attention; it early-outs when
+## the hovered piece has not changed.
+func _process(_delta: float) -> void:
+	_update_work_markers()
 
 
 func _ready() -> void:
@@ -160,6 +168,19 @@ func _sync_world_size() -> void:
 	if world == null:
 		return
 	world.size = Vector2i(maxi(int(_frame.size.x), 2), maxi(int(_frame.size.y), 2))
+
+
+## Keyboard events arrive in the main viewport, but the 3D controllers live
+## inside the World SubViewport (rotate, Esc, the map editor's tool keys), so
+## they have to be forwarded by hand. Mouse input keeps using the frame's
+## gui_input path, which already handles UI consumption.
+func _input(event: InputEvent) -> void:
+	if world == null or not (event is InputEventKey):
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is SpinBox:
+		return  # typing in the designer's map name field
+	world.push_input(event, true)
 
 
 func _on_frame_input(event: InputEvent) -> void:
@@ -407,6 +428,8 @@ func _on_phase(phase: int) -> void:
 			_backdrop.visible = false
 			_catalog_panel.visible = true
 			_order_panel.visible = false
+			if kitchen != null:
+				kitchen.set_all_zone_markers(true)
 			_summary.visible = false
 			_start_button.visible = true
 			_day_label.text = "Day %d — build" % (day.day + 1 if day != null else 1)
@@ -423,6 +446,9 @@ func _on_phase(phase: int) -> void:
 			_backdrop.visible = true
 			_catalog_panel.visible = false
 			_order_panel.visible = true
+			if kitchen != null:
+				kitchen.set_all_zone_markers(false)
+				kitchen.set_work_markers([], false)
 			_summary.visible = false
 			_start_button.visible = false
 			_clear_cards()
@@ -570,6 +596,37 @@ func _on_next_day_pressed() -> void:
 		return
 	if day != null:
 		day.finish_day()
+
+
+## While a piece that workers can operate is hovered (or dragged), show the
+## tiles they can stand on to work it.
+func _update_work_markers() -> void:
+	if kitchen == null or placer == null or service == null or day == null:
+		return
+	if day.phase != DayController.Phase.BUILD:
+		return
+	var inst: FurnitureInstance = null
+	if placer._grabbed != null:
+		inst = placer._grabbed
+	elif placer._has_hover:
+		inst = kitchen.furniture_at(placer._hover_cell)
+	var key := inst.get_instance_id() if inst != null else 0
+	if key == _work_marker_key:
+		return
+	_work_marker_key = key
+	var cells: Array[Vector2i] = []
+	if inst != null:
+		var station := _station_for(inst)
+		if station != null:
+			cells = station.work_cells
+	kitchen.set_work_markers(cells, not cells.is_empty())
+
+
+func _station_for(inst: FurnitureInstance) -> StationInstance:
+	for station in service.stations:
+		if station.def == inst.def and station.cells.has(inst.anchor):
+			return station
+	return null
 
 
 func _on_placer_selection(_text: String) -> void:

@@ -133,7 +133,10 @@ func tick(_now: int) -> void:
 
 ## Walks back onto the post itself (a mat is walkable, unlike a station).
 func _go_home() -> void:
-	var path := Pathfinder.find_path(service.kitchen, cell, spawn_cell)
+	var avoid := service.busy_worker_cells(self)
+	var path := Pathfinder.find_path(service.kitchen, cell, spawn_cell, avoid)
+	if path.is_empty():
+		path = Pathfinder.find_path(service.kitchen, cell, spawn_cell)
 	if path.is_empty():
 		return
 	_path = path
@@ -176,11 +179,16 @@ func force_idle() -> void:
 
 ## Plans a walk to a cell next to [param target_cell].
 func _go_to(target_cell: Vector2i, new_state: int) -> void:
-	var stand := Pathfinder.adjacent_walkable(service.kitchen, target_cell, cell)
+	var avoid := service.busy_worker_cells(self)
+	var stand := Pathfinder.adjacent_walkable(service.kitchen, target_cell, cell, avoid)
+	if stand.x < -1000:
+		stand = Pathfinder.adjacent_walkable(service.kitchen, target_cell, cell)
 	if stand.x < -1000:
 		_fail("nowhere to stand next to %s" % target_cell)
 		return
-	var path := Pathfinder.find_path(service.kitchen, cell, stand)
+	var path := Pathfinder.find_path(service.kitchen, cell, stand, avoid)
+	if path.is_empty():
+		path = Pathfinder.find_path(service.kitchen, cell, stand)
 	if path.is_empty():
 		_fail("no path to %s" % target_cell)
 		return

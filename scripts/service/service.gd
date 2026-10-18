@@ -210,6 +210,18 @@ func stop_mob() -> void:
 	mob_finished.emit()
 
 
+## Cells where a worker is operating right now. Others route around them; the
+## pathfinder's fallback means this can never make a target unreachable.
+func busy_worker_cells(except: Worker = null) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for worker in workers:
+		if worker == except or worker.eaten:
+			continue
+		if worker.state == Worker.State.WORK:
+			out.append(worker.cell)
+	return out
+
+
 func living_workers() -> Array[Worker]:
 	var out: Array[Worker] = []
 	for worker in workers:
