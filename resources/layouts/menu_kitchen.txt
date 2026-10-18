@@ -1,0 +1,41 @@
+                       
+                       
+  +w+w+-+     +-+w+w+  
+  |. . .|     |. . .|  
+  +     +-+-+-+     +  
+  |. . . . . .|. . .|  
+  +           +     +  
+  |. . . . . . . . .|  
+  +     +l+l+l+   +-+  
+  w. . . . . . . .|    
+  +               +    
+  w. . . . . . . .|    
+  +               +    
+  |. . . . . . . .|    
+  +w+w+-+w+w+-+w+w+    
+                  |    
+                  +    
+[colors]
+4 4 9ea8b8
+5 4 9ea8b8
+6 4 9ea8b8
+7 4 9ea8b8
+8 4 9ea8b8
+[points]
+pickup 2 1
+delivery 8 1
+[furniture]
+counter 5 4 0
+stove 4 4 0
+cutting_table 6 4 0
+worker_post 2 5 0
+assembly_table 4 2 0
+worker_post 8 2 0
+corporate_shrine 4 6 0
+worker_post 2 2 0
+worker_post 7 5 0
+sink 8 5 3
+shelf 1 4 1
+fridge 1 5 1
+plant 6 6 0
+plant 3 6 0

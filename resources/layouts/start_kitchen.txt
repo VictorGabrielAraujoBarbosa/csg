@@ -28,7 +28,9 @@ delivery 8 1
 counter 5 4 0
 stove 4 4 0
 cutting_table 6 4 0
-worker_post 2 4 0
+worker_post 2 5 0
 assembly_table 4 2 0
 worker_post 8 2 0
-corporate_shrine 7 5 0
+corporate_shrine 4 6 0
+worker_post 2 2 0
+worker_post 7 5 0

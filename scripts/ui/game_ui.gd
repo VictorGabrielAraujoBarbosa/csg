@@ -21,7 +21,9 @@ const DENIED_SOUND := "res://assets/kenney_interface-sounds/Audio/back_002.ogg"
 const BUILD_DISTANCE := 15.0
 const DAY_DISTANCE := 16.0
 ## The menu wants the whole restaurant in frame around the title card.
-const MENU_DISTANCE := 18.0
+## The menu camera pulls in close: the kitchen should fill most of the frame
+## behind the title card.
+const MENU_DISTANCE := 9.0
 const DAY_ANCHOR_RIGHT := 0.66
 const CORNER_RADIUS := 26.0
 ## "No cell": the attract stock's placement search returns this when the map has

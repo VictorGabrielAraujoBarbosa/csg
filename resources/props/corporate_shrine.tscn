@@ -12,7 +12,7 @@
 ; Native kit units (FurnitureDef.scale_mult = 2 makes them metres):
 ;   plinth       1.00 x 0.06 x 0.45   the low slab (2.00 x 0.12 x 0.90 m)
 ;   kerb         0.125 tall x 0.02    front + both sides, on the slab
-;   plaque       0.30 x 0.09 x 0.008  brass, tilted 25 deg back on the kerb
+;   plaque       0.26 x 0.10 x 0.008  brass, tilted 35 deg back on the kerb
 ;   mascots      0.6 scale, 0.33 either side of centre, on the slab
 ; The whole piece stays inside x 1.00 / z 0.45 and touches the floor (min y 0),
 ; so it measures 2x1 cells and rotates to 1x2.
@@ -35,8 +35,8 @@
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_plinth"]
 resource_name = "shrine_plinth"
-albedo_color = Color(0.152941, 0.164706, 0.192157, 1)
-roughness = 0.7
+albedo_color = Color(0.309804, 0.333333, 0.376471, 1)
+roughness = 0.75
 
 [sub_resource type="BoxMesh" id="BoxMesh_plinth"]
 material = SubResource("StandardMaterial3D_plinth")
@@ -44,7 +44,7 @@ size = Vector3(1, 0.06, 0.45)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_kerb"]
 resource_name = "shrine_kerb"
-albedo_color = Color(0.423529, 0.454902, 0.501961, 1)
+albedo_color = Color(0.176471, 0.196078, 0.223529, 1)
 metallic = 0.25
 roughness = 0.45
 
@@ -58,13 +58,12 @@ size = Vector3(0.02, 0.125, 0.43)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_plaque"]
 resource_name = "shrine_plaque"
-albedo_color = Color(0.788235, 0.647059, 0.294118, 1)
-metallic = 0.55
-roughness = 0.3
+albedo_color = Color(0.643137, 0.486275, 0.176471, 1)
+roughness = 0.45
 
 [sub_resource type="BoxMesh" id="BoxMesh_plaque"]
 material = SubResource("StandardMaterial3D_plaque")
-size = Vector3(0.3, 0.09, 0.008)
+size = Vector3(0.26, 0.1, 0.008)
 
 [node name="CorporateShrine" type="Node3D"]
 
@@ -89,7 +88,7 @@ material_override = SubResource("StandardMaterial3D_kerb")
 mesh = SubResource("BoxMesh_kerb_side")
 
 [node name="Plaque" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.9063078, -0.4226183, 0, 0.4226183, 0.9063078, 0, 0.215, 0.2)
+transform = Transform3D(1, 0, 0, 0, 0.819152, 0.5735765, 0, -0.5735765, 0.819152, 0, 0.226, 0.176)
 material_override = SubResource("StandardMaterial3D_plaque")
 mesh = SubResource("BoxMesh_plaque")
 
