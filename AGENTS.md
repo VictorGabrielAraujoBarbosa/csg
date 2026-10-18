@@ -268,6 +268,10 @@ orders, jobs, items, workers at shutdown).
   owned, so they don't get saved into the scene.
 - `StationInstance.work_target()` is the cell a worker operates from; a 1×1 station's work
   target is its own cell (the worker stands adjacent).
+- "A job lost its inputs" was never noise — it is theft: a carried item landed on its consumer's
+  station with no hold, so the next plan's `find_free` took it. The landing handoff is
+  `_landing_holder` (the carry's parent if alive, else the producer's `reserved_output_for`), and
+  the self-test asserts a served day has **zero** such warnings.
 - The capture's `_self_test()` is a coroutine: `_ready` **must** `await` it, or the flags that
   follow (`--furniture`, `--sim`, …) run in the middle of the suite and break its assumptions.
 - The kitchen frame is a `TextureRect` over `SubViewport.get_texture()`, not a
