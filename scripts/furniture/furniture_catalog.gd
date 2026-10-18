@@ -40,7 +40,7 @@ static func shop_items() -> Array[FurnitureDef]:
 
 ## The shop groupings that actually have something in them, in a fixed order.
 static func shop_categories() -> Array[StringName]:
-	var order: Array[StringName] = [&"stations", &"surfaces", &"workers"]
+	var order: Array[StringName] = [&"stations", &"surfaces", &"storage", &"workers"]
 	var out: Array[StringName] = []
 	for category in order:
 		for def in all():
@@ -56,6 +56,8 @@ static func category_label(category: StringName) -> String:
 			return "Stations"
 		&"surfaces":
 			return "Surfaces"
+		&"storage":
+			return "Storage"
 		&"workers":
 			return "Staff"
 		&"decor":
@@ -71,6 +73,10 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("sink", "Sink", "kitchenSink.glb", Vector2i(1, 1), 100, ["washing", "water"], &"stations", true))
 	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"stations", true))
 	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["prep", "surface"], &"surfaces", true))
+	# Storage: base ingredients are taken from a `storage` station, so a kitchen
+	# with none of these cannot cook at all.
+	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", true))
+	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"], &"storage", true))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
 		["prep", "surface"], 0.9))
@@ -82,7 +88,6 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("bar", "Serving Bar", "kitchenBar.glb", Vector2i(1, 1), 90, ["serving", "surface"]))
 	out.append(_make("bar_end", "Bar End", "kitchenBarEnd.glb", Vector2i(1, 1), 50, ["serving"]))
 	out.append(_make("trash", "Trash Can", "trashcan.glb", Vector2i(1, 1), 30, ["bin"]))
-	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"]))
 	out.append(_make("table", "Table", "table.glb", Vector2i(2, 1), 70, ["dining", "surface"]))
 	out.append(_make("table_round", "Round Table", "tableRound.glb", Vector2i(2, 2), 90, ["dining", "surface"]))
 	out.append(_make("table_cross", "Banquet Table", "tableCross.glb", Vector2i(5, 3), 200, ["dining", "surface"]))
@@ -92,7 +97,6 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("sofa", "Sofa", "loungeSofa.glb", Vector2i(2, 1), 110, ["dining", "comfort"]))
 	out.append(_make("sofa_long", "Long Sofa", "loungeDesignSofa.glb", Vector2i(3, 1), 160, ["dining", "comfort"]))
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
-	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"]))
 	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
 	return out

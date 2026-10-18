@@ -37,3 +37,11 @@
 [points]
 pickup 2 2
 delivery 12 4
+[furniture]
+counter 2 1 0
+stove 3 1 0
+counter 4 1 0
+sink 5 1 0
+assembly_table 2 4 0
+shelf 1 1 0
+worker_post 1 2 0

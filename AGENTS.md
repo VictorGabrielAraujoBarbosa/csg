@@ -25,9 +25,11 @@ Landed so far:
   the wall builder draws one native piece; a lone legacy edge still renders squeezed. This also
   fixed a real bug: the builder's partner search had its offsets swapped, so *no* feature ever
   paired and every window/doorway in the game was a squeezed half-width sliver.
-- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is the five pieces with a job
-  (stove, sink, counter, assembly table, worker post) plus the composed props; everything else
-  (fridges, bars, tables, sofas, plants) stays in the catalog for dev-authored maps only.
+- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is everything with a job:
+  stations (stove, sink, assembly table), surfaces (counter, cutting table, plating station),
+  storage (shelf, fridge — base ingredients come from a `storage` station, so a kitchen without
+  one cannot cook) and the worker post. Bars, tables, sofas, plants and the redundant sizes stay
+  in the catalog for dev-authored maps only.
 - **Composed props** (`resources/props/*.tscn`): several Kenney models in one scene, measured
   like any piece (`cutting_table`, `plating_station`). `FurnitureDef.surface_override` puts items
   on the work surface rather than on the tallest decoration.

@@ -703,7 +703,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(kitchen.save_layout(save_path), "designer: the current map saves to disk")
 	_expect(kitchen.load_layout("res://resources/layouts/start_kitchen.txt"), "designer: the start map loads")
 	_expect(kitchen.data.points.size() == 2, "designer: the start map ships intake and delivery points")
-	_expect(kitchen.data.furniture.is_empty(), "designer: the start map is an empty shell to furnish")
+	var start_ids: Array[StringName] = []
+	for start_entry in kitchen.data.furniture:
+		start_ids.append(start_entry.get("id", &""))
+	_expect(start_ids.has(&"stove") and start_ids.has(&"worker_post") and start_ids.has(&"shelf"),
+		"designer: the start map ships a working starter kitchen")
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
@@ -832,10 +836,10 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		var shop_ids: Array[StringName] = []
 		for def in FurnitureCatalog.shop_items():
 			shop_ids.append(def.id)
-		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post"]:
+		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post", &"shelf", &"fridge"]:
 			_expect(shop_ids.has(wanted), "shop: %s is on sale" % wanted)
 		_expect(not shop_ids.has(&"plant") and not shop_ids.has(&"sofa") and not shop_ids.has(&"trash")
-			and not shop_ids.has(&"fridge"), "shop: decor and functionless pieces are not on sale")
+			and not shop_ids.has(&"table_round"), "shop: decor and functionless pieces are not on sale")
 		_expect(FurnitureCatalog.shop_categories().size() >= 3, "shop: the pieces are grouped into categories")
 		var cutting := FurnitureCatalog.find(&"cutting_table")
 		_expect(cutting != null and cutting.shop, "props: the composed cutting table is a shop item")
