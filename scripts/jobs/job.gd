@@ -30,6 +30,10 @@ var target_cell := Vector2i.ZERO
 var reserved_items: Array[WorldItem] = []
 
 var parent: Job
+## Set by the planner when this producer's output is already spoken for: the
+## consuming job that needs this dish. The output item is reserved for it the
+## moment it is spawned, so another order cannot take it.
+var reserved_output_for: Job = null
 var location := Vector2i.ZERO
 var fail_reason := ""
 

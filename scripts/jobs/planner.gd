@@ -120,6 +120,9 @@ func _plan_item(item_id: StringName, amount: int, target_cell: Vector2i, order: 
 			continue
 		# 2/3. plan one batch of it
 		var made := _plan_one_batch(item_id, payload_match, target_cell, order, parent, chain, now)
+		if made != null and not dry_run and parent != null and made.kind == Job.Kind.PRODUCE:
+			# Whatever this producer spawns belongs to the job that asked for it.
+			made.reserved_output_for = parent
 		if made == null:
 			if first_job == null:
 				_warn(_explain_missing(item_id, order_id))

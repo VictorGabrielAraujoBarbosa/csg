@@ -146,6 +146,7 @@ func tick_once() -> void:
 			worker.tick(tick)
 		if ticks_per_second > 0 and tick % maxi(ticks_per_second * 2, 1) == 0:
 			_retry_unplannable()
+			_sweep_stale_reservations()
 			if watchdog_enabled:
 				_retry_stalled_orders()
 	tick_passed.emit(tick)
@@ -538,6 +539,8 @@ func finish_produce(job: Job, worker: Worker = null) -> void:
 	var out: WorldItem = null
 	for i in maxi(job.recipe.output_amount, 1):
 		out = items.spawn(out_def, cell, payload_for(job, entries), kitchen.surface_height(cell))
+		if job.reserved_output_for != null and _job_alive(job.reserved_output_for):
+			out.reserved_by = job.reserved_output_for
 		# Only the order's own dish is tagged with the order: ingredients stay
 		# shareable between orders (tagging them would lock the pantry per order).
 		pass  # BISECT: tagging disabled
@@ -743,6 +746,23 @@ func _retry_stalled_orders() -> void:
 		else:
 			order.state = Order.State.UNPLANNABLE
 			_log("stalled order %d cannot be re-planned" % order.id)
+
+
+## A job that is still on the board and still wants something.
+func _job_alive(job: Job) -> bool:
+	if job == null:
+		return false
+	if not board.jobs.has(job):
+		return false
+	return job.state == Job.State.PENDING or job.state == Job.State.ACTIVE
+
+
+## Items held by a plan that no longer exists become free again. This is the net
+## that makes a lost job self-healing instead of a permanent lock.
+func _sweep_stale_reservations() -> void:
+	for item in items.items:
+		if item.reserved_by != null and not _job_alive(item.reserved_by):
+			item.reserved_by = null
 
 
 func _has_live_jobs(order: Order) -> bool:
