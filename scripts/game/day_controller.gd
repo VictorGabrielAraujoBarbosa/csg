@@ -20,7 +20,9 @@ signal reasons_changed(reasons: Array)
 @export_group("Day schedule")
 ## Day 1 asks `base_orders` orders over `base_day_ticks`; later days add more.
 @export var base_day_ticks := 600
-@export var ticks_per_day_extra := 120
+## Every day after the scripted opening adds one order but only this many ticks,
+## so the queue grows faster than any kitchen can clear it.
+@export var ticks_per_day_extra := 60
 @export var base_orders := 3
 @export var orders_per_day_extra := 1
 @export var max_modifiers := 2
@@ -29,8 +31,9 @@ signal reasons_changed(reasons: Array)
 
 @export_group("Economy & loss")
 @export var starting_money := 250
-## An order waiting longer than this loses the day.
-@export var order_time_limit_ticks := 600
+## An order waiting longer than this loses the day. Generous on purpose: the
+## demo should be lost to the queue piling up, not to one slow dish.
+@export var order_time_limit_ticks := 800
 
 @export_group("Horror")
 ## A lost day ends with the customers breaking in and eating the staff.
@@ -40,6 +43,36 @@ signal reasons_changed(reasons: Array)
 @export var mob_max := 6
 ## Safety cap on the attack, in ticks; then the day closes anyway.
 @export var horror_timeout_ticks := 900
+
+## The hand-authored opening days (no RNG: the demo must play the same way every
+## run). Day 1 teaches storage — the venue ships without one — day 2 teaches
+## fries (a frying station is required) and day 3 throws everything at once.
+const DAY_SCRIPT := [
+	{
+		"ticks": 600,
+		"arrivals": [
+			{"tick": 40},
+			{"tick": 230},
+			{"tick": 430},
+		],
+	},
+	{
+		"ticks": 900,
+		"arrivals": [
+			{"tick": 40},
+			{"tick": 220, "adds": [&"add_fries"]},
+			{"tick": 420, "adds": [&"add_fries"]},
+		],
+	},
+	{
+		"ticks": 950,
+		"arrivals": [
+			{"tick": 30, "adds": [&"add_cheese"]},
+			{"tick": 260, "adds": [&"add_fries"]},
+			{"tick": 520, "removes": [&"no_salad"]},
+		],
+	},
+]
 
 var phase := Phase.BUILD
 var day := 0
@@ -98,7 +131,38 @@ func can_start_day() -> Array[String]:
 		for text: String in service.can_serve(arrival["dish"], arrival["adds"], arrival["removes"]):
 			if not reasons.has(text):
 				reasons.append(text)
-	return reasons
+	return _tidy_reasons(reasons)
+
+
+## The dry run explains every missing link ("no storage station to get Bread
+## from", "cannot make Burger: no way to provide bread", ...). For the player we
+## keep the structural reasons (a missing station, no staff) and drop the
+## cascade that follows from them.
+static func _tidy_reasons(reasons: Array[String]) -> Array[String]:
+	var out: Array[String] = []
+	var seen := {}
+	for text in reasons:
+		if text.contains("worker post"):
+			out.append(text)
+			seen["workers"] = true
+	var structural: Array[String] = []
+	for text in reasons:
+		if not text.begins_with("no "):
+			continue
+		var idx := text.find(" station")
+		if idx < 0:
+			continue
+		var key := text.substr(3, idx - 3)
+		if key.begins_with("free "):
+			key = key.substr(5)
+		if seen.has(key):
+			continue
+		seen[key] = true
+		structural.append(text)
+	if structural.is_empty():
+		return reasons if not reasons.is_empty() else out
+	out.append_array(structural)
+	return out
 
 
 func start_day() -> bool:
@@ -130,6 +194,7 @@ func finish_day() -> void:
 	# Leave the day phase (used by the summary screen's button).
 	if phase == Phase.SUMMARY:
 		if service != null:
+			service.reset_after_day()
 			service.clear_eaten_posts()
 		if kitchen != null:
 			kitchen.clear_broken_edges()
@@ -138,6 +203,8 @@ func finish_day() -> void:
 
 
 func _make_plan(day_number: int) -> DayPlan:
+	if day_number >= 1 and day_number <= DAY_SCRIPT.size():
+		return _scripted_plan(day_number)
 	var count := base_orders + maxi(day_number - 1, 0) * orders_per_day_extra
 	var ticks := base_day_ticks + maxi(day_number - 1, 0) * ticks_per_day_extra
 	var modifier_ids: Array[StringName] = []
@@ -145,6 +212,36 @@ func _make_plan(day_number: int) -> DayPlan:
 		modifier_ids.append(def.id)
 	return DayPlan.generate(day_number, base_seed + day_number * 7919, menu,
 		modifier_ids, count, ticks, max_modifiers)
+
+
+## The scripted opening: fixed arrivals, so day 1 and day 2 always teach the same
+## lesson (buy storage, then buy a fryer).
+func _scripted_plan(day_number: int) -> DayPlan:
+	var script: Dictionary = DAY_SCRIPT[day_number - 1]
+	var plan := DayPlan.new()
+	plan.day = day_number
+	plan.seed_value = base_seed + day_number * 7919
+	plan.max_ticks = int(script.get("ticks", base_day_ticks))
+	var dish: StringName = menu[0] if not menu.is_empty() else &"burger"
+	for entry: Dictionary in script.get("arrivals", []):
+		plan.arrivals.append({
+			"tick": int(entry.get("tick", 0)),
+			"dish": dish,
+			"adds": entry.get("adds", []),
+			"removes": entry.get("removes", []),
+		})
+	return plan
+
+
+## One line for the summary card, foreshadowing what the next day brings.
+func next_day_hint() -> String:
+	match day + 1:
+		2:
+			return "Tomorrow: fries are on the menu. You will need a frying station."
+		3:
+			return "Tomorrow: a full menu, and busier than today."
+		_:
+			return "Tomorrow: busier again." 
 
 
 func _fire_arrivals() -> void:

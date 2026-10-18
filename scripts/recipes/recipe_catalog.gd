@@ -156,6 +156,8 @@ static func _build() -> void:
 		[{"item": &"tray", "amount": 1}], &"intake", 10, &"", &"order")
 	_make("cook_patty", "Cook Patty", &"patty_cooked", 1,
 		[{"item": &"patty_raw", "amount": 1}], &"cooking", 40)
+	_make("fry_fries", "Fry Potatoes", &"fries", 2,
+		[{"item": &"potato", "amount": 2}], &"frying", 30)
 	_make("make_salad", "Make Salad", &"salad", 2,
 		[{"item": &"tomato", "amount": 2}, {"item": &"lettuce", "amount": 1}], &"prep", 30)
 	_make("slice_cheese", "Slice Cheese", &"cheese_slice", 6,

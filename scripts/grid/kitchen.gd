@@ -65,6 +65,9 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 @export var surface_item_height := 0.5
 
 var data: KitchenLayout
+## The purse an undone sale is charged back to. Set by [Service]; null in the
+## editor and the map tools, where no money changes hands.
+var wallet: OrderManager
 
 var _generated: Node3D
 var _grid: MeshInstance3D
@@ -320,7 +323,10 @@ func remove_furniture_at(cell: Vector2i, record := true) -> bool:
 	return true
 
 
-func remove_furniture(inst: FurnitureInstance, record := true) -> void:
+## Removes a placed piece. [param refund] is the money the removal pays back to
+## the player (0 for venue furniture); it is recorded with the undo entry so
+## undoing the sale takes that money away again.
+func remove_furniture(inst: FurnitureInstance, record := true, refund := 0) -> void:
 	if inst == null:
 		return
 	var entry := furniture_entry(inst)
@@ -330,7 +336,10 @@ func remove_furniture(inst: FurnitureInstance, record := true) -> void:
 	inst.queue_free()
 	_erase_furniture_entry(entry)
 	if record:
-		push_undo({"type": "furniture_remove", "entry": entry})
+		var undo_entry := {"type": "furniture_remove", "entry": entry}
+		if refund > 0:
+			undo_entry["refund"] = refund
+		push_undo(undo_entry)
 		layout_edited.emit()
 
 
@@ -556,7 +565,10 @@ static func layout_files() -> PackedStringArray:
 
 ## Applies every tint of the piece, surface by surface, using the surface's
 ## material name (wood, metal, glass, ...). "*" recolours the whole piece.
+## A dragged piece wears the ghost override; the piece's own colours only show
+## again once that override is gone, so clear it first.
 func _apply_furniture_tints(inst: FurnitureInstance) -> void:
+	inst.clear_material_override()
 	for mi in inst.meshes():
 		if mi.mesh == null:
 			continue
@@ -845,6 +857,10 @@ func _undo_one(entry: Dictionary) -> bool:
 			if def != null:
 				_place_furniture_raw(def, entry.entry.cell, entry.entry.steps, entry.entry.get("tints", {}))
 				data.furniture.append(entry.entry)
+				var refund := int(entry.get("refund", 0))
+				if refund > 0 and wallet != null:
+					# Undoing a sale: the piece is back, the money goes away again.
+					wallet.try_spend(refund)
 		"furniture_tint":
 			var inst2 := _find_entry_instance(entry.entry)
 			if inst2 != null:

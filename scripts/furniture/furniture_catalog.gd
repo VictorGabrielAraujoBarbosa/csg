@@ -69,20 +69,29 @@ static func build() -> Array[FurnitureDef]:
 	var out: Array[FurnitureDef] = []
 	# id, name, model, footprint, cost, tags, category, shop
 	# --- the shop: everything that has a job in the kitchen ---
-	out.append(_make("stove", "Stove", "kitchenStove.glb", Vector2i(1, 1), 120, ["cooking", "heat"], &"stations", true))
-	out.append(_make("sink", "Sink", "kitchenSink.glb", Vector2i(1, 1), 100, ["washing", "water"], &"stations", true))
-	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"stations", true))
-	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["prep", "surface"], &"surfaces", true))
+	out.append(_make("stove", "Stove", "kitchenStove.glb", Vector2i(1, 1), 120, ["cooking", "heat"], &"stations", true,
+		"Cooks raw patties. A worker stands here while it cooks."))
+	out.append(_make("sink", "Sink", "kitchenSink.glb", Vector2i(1, 1), 100, ["washing", "water"], &"stations", true,
+		"Washes dirty trays so they go back into the pool."))
+	out.append(_make("fryer", "Fryer", "kitchenMicrowave.glb", Vector2i(1, 1), 120, ["frying"], &"stations", true,
+		"Fries potatoes. Without one you cannot serve + fries orders."))
+	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"stations", true,
+		"Where the finished dish is put together."))
+	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["prep", "surface"], &"surfaces", true,
+		"Prep surface: salads and cheese slices are made here."))
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
 	# with none of these cannot cook at all.
-	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", true))
-	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"], &"storage", true))
+	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", true,
+		"Storage. Every ingredient is fetched from a storage station."))
+	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"], &"storage", true,
+		"Storage, and it keeps things cold. Without storage, nothing can be cooked."))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
-		["prep", "surface"], 0.9))
+		["prep", "surface"], 0.9, "Prep surface with a board and knife: salads and cheese slices."))
 	out.append(_make_prop("plating_station", "Plating Station", "plating_station.tscn", Vector2i(1, 1), 110,
-		["prep", "surface"], 0.9))
-	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 0, ["worker"], &"workers", true))
+		["prep", "surface"], 0.9, "Trays and plates, ready for the line."))
+	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 60, ["worker"], &"workers", true,
+		"Spawns a chibi. More posts, more hands on the line."))
 	# --- decor: map-authoring pieces (the level designer places these) ---
 	out.append(_make("drawer_counter", "Drawer Counter", "kitchenCabinetDrawer.glb", Vector2i(1, 1), 80, ["prep", "surface", "storage"]))
 	out.append(_make("bar", "Serving Bar", "kitchenBar.glb", Vector2i(1, 1), 90, ["serving", "surface"]))
@@ -105,15 +114,15 @@ static func build() -> Array[FurnitureDef]:
 ## A composed prop scene (several kit models in one piece): measured and priced
 ## like any other piece, but its icon has no kit render yet.
 static func _make_prop(id: String, name: String, file: String, footprint: Vector2i, cost: int,
-		tags: Array, surface: float) -> FurnitureDef:
-	var def := _make(id, name, file, footprint, cost, tags, &"surfaces", true, PROPS_DIR)
+		tags: Array, surface: float, desc := "") -> FurnitureDef:
+	var def := _make(id, name, file, footprint, cost, tags, &"surfaces", true, desc, PROPS_DIR)
 	def.icon_path = ISOMETRIC_DIR + "kitchenCabinet_NE.png"  # stand-in until props render icons
 	def.surface_override = surface
 	return def
 
 
 static func _make(id: String, name: String, file: String, footprint: Vector2i, cost: int, tags: Array,
-		category: StringName = &"decor", shop := false, dir := FURNITURE_DIR) -> FurnitureDef:
+		category: StringName = &"decor", shop := false, desc := "", dir := FURNITURE_DIR) -> FurnitureDef:
 	var def := FurnitureDef.new()
 	def.id = StringName(id)
 	def.display_name = name
@@ -123,6 +132,7 @@ static func _make(id: String, name: String, file: String, footprint: Vector2i, c
 	def.cost = cost
 	def.category = category
 	def.shop = shop
+	def.description = desc
 	var tag_list: Array[StringName] = []
 	for tag in tags:
 		tag_list.append(StringName(tag))

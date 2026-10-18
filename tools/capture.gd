@@ -86,6 +86,8 @@ func _ready() -> void:
 				(child as Node3D).visible = false
 	if "--selftest" in OS.get_cmdline_user_args() and kitchen != null:
 		await _self_test(kitchen, scene)
+	if "--arc" in OS.get_cmdline_user_args():
+		_run_arc(scene)
 	if "--furniture" in OS.get_cmdline_user_args() and kitchen != null:
 		_place_demo_furniture(kitchen)
 	if "--sim" in OS.get_cmdline_user_args():
@@ -242,6 +244,54 @@ func _put(kitchen: Kitchen, by_id: Dictionary, id: StringName, cell: Vector2i, s
 		print("could not place ", id, " at ", cell)
 
 
+## The demo arc, headless: days 1-3 must be winnable with the purchases the demo
+## teaches (storage before day 1, a fryer before day 2) and the squeeze must end
+## in a loss within a handful of days.
+func _run_arc(scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
+	if service == null or day == null or kitchen == null:
+		print("[arc] missing service / day / kitchen")
+		return
+	_reset_world(service)
+	service.sim_speed = 0.0
+	day.day = 0
+	# The player's shopping list: storage first, then the fryer for day 2.
+	kitchen.place_furniture(FurnitureCatalog.find(&"shelf"), Vector2i(1, 2), 0)
+	service.rebuild_stations()
+	var won: Array[int] = []
+	var lost_on := 0
+	for i in 8:
+		if day.day == 1:
+			# day 1's earnings buy the fryer, plus a third chibi for the rush
+			kitchen.place_furniture(FurnitureCatalog.find(&"fryer"), Vector2i(7, 2), 0)
+			kitchen.place_furniture(FurnitureCatalog.find(&"worker_post"), Vector2i(1, 4), 0)
+			service.rebuild_stations()
+		var reasons := day.can_start_day()
+		if not reasons.is_empty():
+			print("[arc] day %d blocked: %s" % [day.day + 1, reasons[0]])
+			break
+		day.start_day()
+		var ticks := 0
+		while day.phase == DayController.Phase.DAY and ticks < 6000:
+			service.tick_once()
+			ticks += 1
+		if day.lost:
+			lost_on = day.day
+		else:
+			won.append(day.day)
+		print("[arc] day %d: %s, served %d/%d in %d ticks" % [
+			day.day, "LOST" if day.lost else "won", day.served, day.plan.arrivals.size(), ticks])
+		day.finish_day()
+		if lost_on > 0:
+			break
+	day.day = 0  # leave the counter where the other tools expect it
+	_reset_world(service)
+	_expect(won.has(1) and won.has(2) and won.has(3), "arc: days 1, 2 and 3 are winnable (won: %s)" % str(won))
+	_expect(lost_on >= 4 and lost_on <= 8, "arc: the squeeze ends in a loss by day 8 (lost on day %d)" % lost_on)
+
+
 ## Runs a whole day headlessly: gate -> start -> ticks until the summary, then
 ## the loss path (too many pending orders).
 func _run_day(scene: Node) -> void:
@@ -254,6 +304,7 @@ func _run_day(scene: Node) -> void:
 	service.worker_consumed.connect(func(_w: Worker) -> void: _horror_eaten += 1)
 	service.sim_speed = 0.0
 	service.orders.arrive_on_turn_in = false
+	day.day = 0
 	_reset_world(service)
 	# Start from a clean slate: leftover orders from earlier sims would otherwise
 	# trip the "waited too long" loss rule immediately.
@@ -311,6 +362,15 @@ func _run_day(scene: Node) -> void:
 	_expect(service.workers.size() == 3, "horror: the staff is back for the next build phase")
 	_expect(kitchen.broken_edges().is_empty(), "horror: the windows are repaired for the next day")
 	_expect(not kitchen.can_cross(Vector2i(3, 0), Vector2i(3, 1)), "horror: the repaired window blocks again")
+	# The day ends clean: nothing left over from the rush, trays back in the pool.
+	service.reset_after_day()
+	var leftover := 0
+	for item in service.items.items:
+		if item.def.id == &"tray":
+			leftover += 1
+	_expect(service.items.items.size() == leftover, "day end: only trays are left in the world")
+	_expect(leftover == service.starting_trays,
+		"day end: the tray pool is back to %d (got %d)" % [service.starting_trays, leftover])
 	# The attack is deterministic: the same setup eats the same staff through the
 	# same windows (the exact tick count depends on where the staff stood).
 	_expect(day.start_day(), "horror: replay day starts")
@@ -706,8 +766,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	var start_ids: Array[StringName] = []
 	for start_entry in kitchen.data.furniture:
 		start_ids.append(start_entry.get("id", &""))
-	_expect(start_ids.has(&"stove") and start_ids.has(&"worker_post") and start_ids.has(&"shelf"),
-		"designer: the start map ships a working starter kitchen")
+	_expect(start_ids.has(&"stove") and start_ids.has(&"worker_post") and start_ids.has(&"counter")
+		and start_ids.has(&"sink") and start_ids.has(&"assembly_table"),
+		"designer: the start map ships a cooking line and staff")
+	_expect(not start_ids.has(&"shelf") and not start_ids.has(&"fridge"),
+		"designer: day 1 has no storage — the player has to buy it")
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
@@ -873,25 +936,41 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(probe_dish.matches(&"burger", -1, {"variant": "burger__no_cheese"}),
 			"variant: it does satisfy its own variant")
 		service.items.remove(probe_dish)
+		# Day 2's hook: fries are produced at a frying station, so a + fries
+		# order cannot be served until the player buys a fryer.
+		var fryer_def := FurnitureCatalog.find(&"fryer")
+		_expect(fryer_def != null and fryer_def.has_tag(&"frying"), "fryer: the shop piece carries the frying tag")
+		var without_fryer := service.can_serve(&"burger", [&"add_fries"], [])
+		var wants_frying := false
+		for text in without_fryer:
+			if text.contains("frying"):
+				wants_frying = true
+		_expect(wants_frying, "fryer: without one the gate asks for a frying station")
+		var fryer_cell := Vector2i(2, 2)
+		_expect(kitchen.place_furniture(fryer_def, fryer_cell, 0) != null, "fryer: it can be placed")
+		service.rebuild_stations()
 		var mod_order := service.orders.spawn(&"burger", [&"add_fries"], [&"no_cheese"])
-		_expect(service.plan_order(mod_order), "modifier order plans")
+		_expect(service.plan_order(mod_order), "fryer: a + fries order plans once it exists")
 		var fetches_cheese := false
-		var fetches_fries := false
+		var makes_fries := false
 		for job in service.board.jobs:
-			if job.recipe != null and job.recipe.is_source:
-				if job.recipe.output == &"cheese_slice":
-					fetches_cheese = true
-				if job.recipe.output == &"fries":
-					fetches_fries = true
+			if job.recipe == null:
+				continue
+			if job.recipe.is_source and job.recipe.output == &"cheese_slice":
+				fetches_cheese = true
+			if job.recipe.output == &"fries":
+				makes_fries = true
 		_expect(not fetches_cheese, "modifier order never fetches the removed ingredient")
-		_expect(fetches_fries, "modifier order fetches the add-on")
+		_expect(makes_fries, "modifier order produces the add-on (fries are not a shelf item any more)")
 		service.board.cancel_for_order(mod_order)
 		mod_order.state = Order.State.FAILED
+		kitchen.remove_furniture_at(fryer_cell)
+		service.rebuild_stations()
 		# --- the Start Day gate ---
 		_expect(service.can_serve(&"burger", [], []).is_empty(),
 			"gate: the demo kitchen can serve a plain burger")
-		_expect(service.can_serve(&"burger", [&"add_fries"], [&"no_cheese"]).is_empty(),
-			"gate: the demo kitchen can serve a modified burger")
+		_expect(not service.can_serve(&"burger", [&"add_fries"], [&"no_cheese"]).is_empty(),
+			"gate: a + fries order is blocked without a frying station")
 		var saved_stations := service.stations.duplicate()
 		var no_cooking: Array[StationInstance] = []
 		for st in service.stations:

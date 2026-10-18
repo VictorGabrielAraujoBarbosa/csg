@@ -203,6 +203,20 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
   behind a short cutscene (letterbox, slow motion, "DAY LOST"). Broken windows are runtime state —
   they are repaired when the next build phase starts and never saved into the map.
 
+## The demo arc
+
+- **Day 1** — three plain burgers, and the venue has **no storage**: buy a fridge or a shelf first,
+  or nothing can be cooked. Busy, but any kitchen can clear it.
+- **Day 2** — fries join the menu (`+ fries` cards). Fries are not a shelf item any more: they are
+  fried from potatoes at a **frying station**, so the kitchen has to grow.
+- **Day 3** — the full menu with modifiers, back to back.
+- **Day 4 and on** — the squeeze: one more order every day, but only six more seconds. The queue
+  eventually overflows, and a lost day ends with the customers coming through the windows.
+
+Every shop card carries a one-line description of what the piece is *for*, removing a piece refunds
+its full price when you bought it (venue furniture from the map is free to move but refunds
+nothing), and the kitchen is wiped clean between days.
+
 ## The level designer
 
 Press `M` to open it (dev tool, ships with the game for authoring):

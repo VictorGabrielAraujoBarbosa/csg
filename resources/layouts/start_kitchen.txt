@@ -38,7 +38,6 @@
 pickup 3 3
 delivery 13 5
 [furniture]
-shelf 2 2 0
 counter 3 2 0
 stove 4 2 0
 counter 5 2 0

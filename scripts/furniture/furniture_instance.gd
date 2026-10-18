@@ -11,6 +11,9 @@ var surface_y := 0.5
 ## Per-material colours: material name -> Color, with "*" meaning the whole
 ## piece. Empty = original look (see [method tint_for]).
 var tints: Dictionary = {}
+## Bought this session — only these sell back (venue furniture that came from
+## the map file refunds nothing when it is removed).
+var paid := false
 
 var _model: Node3D
 var _meshes: Array[MeshInstance3D] = []
@@ -89,6 +92,12 @@ func material_names() -> PackedStringArray:
 func set_material_override_all(mat: Material) -> void:
 	for mi in _meshes:
 		mi.material_override = mat
+
+
+## Drops the ghost / drag override so the piece shows its own materials again.
+func clear_material_override() -> void:
+	for mi in _meshes:
+		mi.material_override = null
 
 
 func _collect_meshes() -> void:

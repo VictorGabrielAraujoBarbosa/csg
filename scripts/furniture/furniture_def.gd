@@ -32,6 +32,8 @@ extends Resource
 ## decoration (a bowl, a stack of trays) is taller than the real work surface.
 @export var surface_override := 0.0
 @export var cost: int = 0
+## One line for the shop card: what this piece does for the kitchen.
+@export_multiline var description := ""
 @export var tags: Array[StringName] = []
 ## Buyable in the build-phase shop. Decor pieces are map-authoring only: they
 ## stay in the catalog (dev maps, the level designer) but not on sale.

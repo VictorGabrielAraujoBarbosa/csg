@@ -352,8 +352,13 @@ func _update_detail() -> void:
 	_detail_name.text = def.display_name
 	_detail_price.text = "$%d" % def.cost if def.cost > 0 else "free"
 	var size := def.resolved_footprint()
-	_detail_info.text = "%d x %d m\n%s\nLMB place   R rotate\nRMB remove / put back" % [
-		size.x, size.y, ", ".join(def.tags)]
+	var lines := PackedStringArray()
+	if not def.description.is_empty():
+		lines.append(def.description)
+	lines.append("%d x %d m   (%s)" % [size.x, size.y, ", ".join(def.tags)])
+	lines.append("LMB place   R rotate")
+	lines.append("RMB remove   (bought pieces refund)")
+	_detail_info.text = "\n".join(lines)
 
 
 func _build_summary() -> void:
@@ -562,12 +567,17 @@ func _on_hint(text: String) -> void:
 
 
 func _on_day_finished(summary: Dictionary) -> void:
+	var tail := ""
+	if bool(summary.get("lost", false)):
+		tail = "\n" + str(summary.get("reason", ""))
+	elif day != null:
+		tail = "\n" + day.next_day_hint()
 	_summary_label.text = "Day %d %s\n\nOrders served: %d\nMoney: $%d%s" % [
 		int(summary.get("day", 0)),
 		"LOST" if summary.get("lost", false) else "complete",
 		int(summary.get("served", 0)),
 		int(summary.get("money", 0)),
-		"\n" + str(summary.get("reason", "")) if summary.get("lost", false) else ""]
+		tail]
 	if bool(summary.get("lost", false)) and _horror_running:
 		_finish_horror_cutscene(summary)
 	else:

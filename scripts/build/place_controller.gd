@@ -208,8 +208,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			if _grabbed != null:
 				_cancel_grab()
-			elif kitchen.remove_furniture_at(_hover_cell):
+			elif _remove_at(_hover_cell):
 				_last_cells.clear()
+
+
+## RMB: removes the piece under the cursor. A piece bought this session is sold
+## back for its full price; venue furniture (from the map file) refunds nothing.
+func _remove_at(cell: Vector2i) -> bool:
+	var inst := kitchen.furniture_at(cell)
+	if inst == null:
+		return false
+	var refund: int = inst.def.cost if inst.paid else 0
+	kitchen.remove_furniture(inst, true, refund)
+	if refund > 0 and service != null:
+		service.orders.add_money(refund)
+	return true
 
 
 func _select(new_index: int) -> void:
@@ -238,11 +251,17 @@ func _try_place() -> void:
 	var def := current_def()
 	if def == null:
 		return
-	if service != null and not free_placement and not service.orders.try_spend(def.cost):
-		return
-	if kitchen.place_furniture(def, _hover_cell, rot_steps) != null:
+	var spent := false
+	if service != null and not free_placement:
+		if not service.orders.try_spend(def.cost):
+			return
+		spent = true
+	var placed := kitchen.place_furniture(def, _hover_cell, rot_steps)
+	if placed != null:
+		# Only a piece the player actually paid for sells back later.
+		placed.paid = spent
 		_last_cells.clear()
-	elif service != null and not free_placement:
+	elif spent:
 		# Placing failed for a non-money reason: give the money back.
 		service.orders.add_money(def.cost)
 

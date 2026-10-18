@@ -11,9 +11,10 @@ Guidance for AI agents (and humans) making changes to this repository. Read this
 | Prototype 2 | `0b05843` | Tick-based deterministic simulation (10/s), real-time presentation interpolation, order/recipe/job pipeline + finite tray cycle, visibility fixes (cartoon-big items, centred points, measured surface heights) |
 | Prototype 3 | `14f22b6` | Real workers (toilet chibis: A*, operate, carry), workers as placed furniture with tinted posts + home return, central priority-ordered assignment, one-item-per-slot, placeholder executor deleted |
 | **Prototype 4** | `3535bd8` | Build phase & day phase: buy catalog, seeded day schedules, order modifiers as recipe variants, order-card UI over a rounded kitchen viewport, day win/loss, money, drag-and-drop rearranging |
-| **Prototype 5 (in progress)** | — | Polish & horror: 2 m windows/doors (fixed the wall pairing), shop split from decor, composed props (cutting table, plating station), level designer UI + start map, the customers-break-in horror event with a loss cutscene |
+| **Prototype 6 (demo)** | — | The submission build: a hand-authored 3-day opening (day 1 needs storage, day 2 needs a fryer, day 3 is the full menu), then a squeeze that ends in the horror; 100% refunds on bought pieces, descriptions on every shop card, and the three demo glitches fixed |
+| **Prototype 5** | — | Polish & horror: 2 m windows/doors (fixed the wall pairing), shop split from decor, composed props (cutting table, plating station), level designer UI + start map, the customers-break-in horror event with a loss cutscene |
 
-Current verification baseline: **178 self-tests green**; deterministic sim = first burger ~234
+Current verification baseline: **~215 self-tests green**; deterministic sim = first burger ~234
 ticks, 4 orders incl. tray wash ~696 ticks, all workers back home when the board empties; one
 full headless day (day 1: 725 ticks, 3/3 served, gate clean) plus the loss path — which now runs
 the whole horror: windows smashed, mob in, staff eaten, staff rehired next day.
@@ -46,8 +47,27 @@ Landed so far:
   window, slow motion, vignette, "DAY LOST" card, shake). Broken windows are a *runtime* overlay:
   never saved, repaired when the next build phase starts.
 
-Still to come in this prototype: the VFX/audio layer over the sim event seam, selling appliances,
-day-start stock, async stations, queue tuning, and the build-phase UI polish pass.
+### Prototype 6 — the demo arc
+
+- **Days 1-3 are scripted** (`DayController.DAY_SCRIPT`, no RNG): day 1 = 3 plain burgers, and the
+  venue ships **without storage**, so the first thing the player does is buy a fridge or shelf;
+  day 2 = 3 orders, two with `+ fries`, which now require a **frying station** (`fryer`, the
+  microwave model, `frying` tag; potatoes → fries via `fry_fries`); day 3 = the full menu with
+  modifiers. Day 4+ keeps the seeded generator with a deliberate squeeze (one more order per day,
+  only +60 ticks) so the queue inevitably overflows and the horror closes the demo.
+- `order_time_limit_ticks` is 800 so the demo is lost to the *queue*, not to one slow dish.
+- **Shop cards explain themselves**: `FurnitureDef.description` is shown in the detail panel.
+- **Selling**: removing a piece refunds its full cost when the player bought it (`FurnitureInstance.paid`);
+  venue pieces from the map file refund nothing (they are not a money printer). Undo of a sale
+  restores the piece *and* takes the money back.
+- **`Service.reset_after_day()`** (called from `DayController.finish_day()`) drops carried items,
+  cancels jobs, wipes every loose item and re-seeds the tray pool — no more food fossilised on the
+  counters overnight.
+- The drag ghost's `material_override` is cleared when a piece is dropped or a grab cancelled, so
+  appliances stop staying green and translucent.
+
+Still to come: day-start stock, async stations (oven/pot with progress bars and burning), prop
+icons, character art, save/load.
 
 ### Prototype 4 spec — what was built (reference)
 

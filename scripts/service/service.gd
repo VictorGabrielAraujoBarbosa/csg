@@ -109,6 +109,8 @@ func _ready() -> void:
 	if kitchen != null:
 		kitchen.layout_rebuilt.connect(_on_layout_changed)
 		kitchen.layout_edited.connect(_on_layout_changed)
+		# Undoing a sale in the build phase charges the refund back to this purse.
+		kitchen.wallet = orders
 	rebuild_stations()
 	_seed_trays()
 	_sync_workers()
@@ -311,6 +313,22 @@ func workers_busy() -> int:
 		if worker.state != Worker.State.IDLE:
 			busy += 1
 	return busy
+
+
+## Clears the world between days: nobody carries anything, no job survives the
+## day and every loose item is gone. The tray pool is seeded again exactly like
+## at startup, so the next day begins with a clean kitchen.
+## Safe when the kitchen has no intake point (it just warns, like [method _seed_trays]).
+func reset_after_day() -> void:
+	for worker in workers:
+		worker.force_idle()
+	for job in board.jobs.duplicate():
+		board.cancel(job, "the day is over")
+	var cleared := items.items.size()
+	for item in items.items.duplicate():
+		items.remove(item)
+	_seed_trays()
+	_log("day reset: %d items cleared, trays re-seeded" % cleared)
 
 
 func request_order(dish: StringName = &"burger", adds: Array = [], removes: Array = []) -> Order:

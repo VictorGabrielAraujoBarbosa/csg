@@ -44,9 +44,12 @@ static func _build() -> void:
 	_add("lettuce", "Lettuce", "cabbage.glb", true)
 	_add("tomato", "Tomato", "tomato.glb", true, &"", {"scale": 1.2})
 	_add("cheese", "Cheese", "cheese.glb", true)
-	_add("fries", "Fries", "fries.glb", true)
+	# No potato in the kit: the coconut is the one plain brown lump (at the
+	# standard food scale it renders ~18 cm, next to a portion of fries).
+	_add("potato", "Potato", "coconut.glb", true)
 	_add("sauce", "Sauce", "soy.glb", true)
 	# Made ingredients.
+	_add("fries", "Fries", "fries.glb", false)
 	_add("patty_cooked", "Cooked Patty", "meat-cooked.glb", false)
 	_add("cheese_slice", "Cheese Slice", "cheese-cut.glb", false)
 	_add("salad", "Salad", "salad.glb", false)
