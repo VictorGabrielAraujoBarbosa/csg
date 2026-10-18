@@ -240,7 +240,10 @@ func _remove_at(cell: Vector2i) -> bool:
 	var inst := kitchen.furniture_at(cell)
 	if inst == null:
 		return false
-	var refund: int = inst.def.cost if inst.paid else 0
+	# Everything sells back at full price, the furniture that came with the map
+	# included: with a 100% refund, rearranging is exactly break-even, so there
+	# is nothing to exploit. The designer moves no money, so it refunds nothing.
+	var refund: int = 0 if free_placement else inst.def.cost
 	kitchen.remove_furniture(inst, true, refund)
 	if refund > 0 and service != null:
 		service.orders.add_money(refund)
