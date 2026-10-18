@@ -205,6 +205,13 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
 
 ## The demo arc
 
+You are a franchisee. Two delivery apps (never named — the red one and the yellow one) went to war,
+corporate ordered a 99%-off sale paid for by the platforms, and that summons a horde of very hungry
+customers. The game opens with a **main menu over a live kitchen** — real orders being cooked and
+served behind the panel — then a five-card **intro cutscene**, and ends (when the queue finally
+overflows) with the customers coming through the windows and a card that explains the title:
+*thank you for playing — you have satisfied the customers.*
+
 - **Day 1** — three plain burgers, and the venue has **no storage**: buy a fridge or a shelf first,
   or nothing can be cooked. Busy, but any kitchen can clear it.
 - **Day 2** — fries join the menu (`+ fries` cards). Fries are not a shelf item any more: they are

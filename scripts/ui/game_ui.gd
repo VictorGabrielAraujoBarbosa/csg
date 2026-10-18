@@ -5,6 +5,12 @@ extends CanvasLayer
 ##
 ## The 3D world lives in a SubViewport which is reparented under the frame here,
 ## so the whole restaurant can be laid out like a UI element.
+##
+## The game boots into a main menu drawn over that live kitchen ([member _menu]):
+## until Start is pressed the shop, the order panel, the top bar and the placer
+## are hidden and an attract loop keeps the chibis cooking with real orders
+## ([method _attract_step]). [method start_game] leaves the menu, restores the
+## phase UI and plays the [IntroSequence].
 
 const CLICK_SOUND := "res://assets/kenney_interface-sounds/Audio/click_002.ogg"
 const CARD_SOUND := "res://assets/kenney_interface-sounds/Audio/drop_002.ogg"
@@ -14,8 +20,13 @@ const DENIED_SOUND := "res://assets/kenney_interface-sounds/Audio/back_002.ogg"
 
 const BUILD_DISTANCE := 15.0
 const DAY_DISTANCE := 16.0
+## The menu wants the whole restaurant in frame around the title card.
+const MENU_DISTANCE := 18.0
 const DAY_ANCHOR_RIGHT := 0.66
 const CORNER_RADIUS := 26.0
+## "No cell": the attract stock's placement search returns this when the map has
+## nowhere to put a lent piece.
+const ATTRACT_NO_CELL := Vector2i(-1000000, -1000000)
 ## Time runs at a third speed while the customers are inside.
 const HORROR_SLOW_MOTION := 0.35
 ## The three tracks the demo ships with, one per mood.
@@ -32,12 +43,40 @@ const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_
 @export var paint: MapPaintController
 @export var cutscene: CutsceneDirector
 @export var world: SubViewport
+@export var intro: IntroSequence
+
+@export_group("Main menu")
+## Title on the menu card drawn over the live kitchen.
+@export var menu_title := "CONSUMER SATISFACTION (GUARANTEED)"
+## One-line premise under the title.
+@export var menu_premise := "A 99%-off sale, paid for by the delivery apps. Serve every order they send — or the customers come inside."
+## The controls reminder on the menu card.
+@export var menu_controls := "LMB place · RMB sell · R rotate · Esc deselect"
+## The asset credit line (all kits are Kenney CC0).
+@export var menu_credit := "Kenney CC0 asset kits — building, furniture, food, UI and audio (kenney.nl)"
+## Seconds between attract-loop checks.
+@export var attract_interval := 1.0
+## Most orders the menu kitchen may have pending at once: keeps the loss rule
+## (which counts pending orders) from ever firing behind the menu.
+@export var attract_max_pending := 2
+## Pieces the menu lends a kitchen that cannot cook yet. The shipped venue is
+## missing its storage and sink (that is the day-1 lesson), so the showreel
+## needs them; they are removed again by [method start_game].
+@export var attract_stock: Array[StringName] = [&"shelf", &"fridge", &"sink"]
+
+@export_group("Ending card")
+## The farewell card, shown once after the horror sequence's DAY LOST.
+@export var ending_title := "THANK YOU FOR PLAYING"
+@export var ending_subtitle := "You have satisfied the customers.\nConsumer satisfaction: guaranteed."
+## Seconds the farewell card stays up.
+@export var ending_hold := 2.6
 
 var _backdrop: ColorRect
 var _frame: TextureRect
 var _frame_material: ShaderMaterial
 var _money_label: Label
 var _day_label: Label
+var _top_bar: PanelContainer
 var _start_button: Button
 var _reason_label: Label
 var _order_panel: PanelContainer
@@ -54,10 +93,22 @@ var _tab_group: ButtonGroup
 var _shop_category: StringName = &""
 var _summary: PanelContainer
 var _summary_label: Label
+var _menu: PanelContainer
 var _cards: Dictionary = {}
 ## Order id -> the countdown label on its card.
 var _card_timers: Dictionary = {}
 var _horror_running := false
+## True once Start has been pressed; before that the menu owns the screen and
+## the attract loop runs behind it.
+var _started := false
+## Seconds until the attract loop's next look at the queue.
+var _attract_clock := 0.0
+## Which menu dish the attract loop asks for next.
+var _attract_dish_index := -1
+## The pieces the menu lent the kitchen; removed again when the game starts.
+var _attract_pieces: Array[FurnitureInstance] = []
+## The farewell card is a one-off: only the first lost day shows it.
+var _ending_shown := false
 ## Who owns the shop status line ("afford" / "hint"), so it can be cleared safely.
 var _status_owner := ""
 ## What the work-tile indicator is currently showing ("" = nothing).
@@ -68,8 +119,11 @@ var _streams: Dictionary = {}
 
 
 ## Only the work-tile indicator needs per-frame attention; it early-outs when
-## the hovered piece has not changed.
-func _process(_delta: float) -> void:
+## the hovered piece has not changed. While the menu is up the attract loop
+## also runs here.
+func _process(delta: float) -> void:
+	if not _started:
+		_attract(delta)
 	_update_work_markers()
 	_update_order_timers()
 
@@ -107,6 +161,8 @@ func _ready() -> void:
 		paint = get_node_or_null("../World/MapPaintController") as MapPaintController
 	if cutscene == null:
 		cutscene = get_node_or_null("Cutscene") as CutsceneDirector
+	if intro == null:
+		intro = get_node_or_null("Intro") as IntroSequence
 	if world == null:
 		world = get_node_or_null("../World") as SubViewport
 
@@ -116,6 +172,7 @@ func _ready() -> void:
 	_build_order_panel()
 	_build_catalog()
 	_build_summary()
+	_build_menu()
 	for i in 4:
 		var player := AudioStreamPlayer.new()
 		add_child(player)
@@ -132,12 +189,18 @@ func _ready() -> void:
 	if kitchen != null:
 		kitchen.layout_edited.connect(_refresh_money)
 		kitchen.layout_rebuilt.connect(_refresh_money)
+		kitchen.layout_rebuilt.connect(_on_layout_rebuilt)
 	if placer != null:
 		placer.selection_changed.connect(_on_placer_selection)
 	if paint != null:
 		paint.hint.connect(_on_hint)
 	_refresh_money()
 	_on_phase(day.phase if day != null else DayController.Phase.BUILD)
+	# The menu's showreel needs a kitchen that can cook: lend the shipped venue
+	# the pieces it is missing (taken back by start_game).
+	if not _started:
+		_ensure_attract_stock()
+		_attract_clock = 0.0
 	# Keep the developer overlay (hint / job counts / warnings) on top of the
 	# player UI: children added at runtime draw after scene children.
 	var dev := get_node_or_null("DevHud")
@@ -226,6 +289,7 @@ func _build_top_bar() -> void:
 	bar.offset_bottom = 74.0
 	bar.add_theme_stylebox_override("panel", _panel_style())
 	add_child(bar)
+	_top_bar = bar
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	bar.add_child(row)
@@ -442,9 +506,288 @@ func _build_summary() -> void:
 	column.add_child(next)
 
 
+## The main menu: a title card over the live kitchen, shown until Start is
+## pressed. Everything else (shop, orders, top bar, placer) stays hidden behind
+## [method _apply_menu_gate].
+func _build_menu() -> void:
+	_menu = PanelContainer.new()
+	_menu.name = "Menu"
+	# Bottom-anchored: the kitchen (and its chibis) stays visible above the card.
+	_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_menu.offset_left = -330.0
+	_menu.offset_top = -318.0
+	_menu.offset_right = 330.0
+	_menu.offset_bottom = -26.0
+	_menu.add_theme_stylebox_override("panel", _menu_style())
+	add_child(_menu)
+	var column := VBoxContainer.new()
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 14)
+	_menu.add_child(column)
+	var title := Label.new()
+	title.name = "Title"
+	title.text = menu_title
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	column.add_child(title)
+	var premise := Label.new()
+	premise.name = "Premise"
+	premise.text = menu_premise
+	premise.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	premise.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	premise.add_theme_font_size_override("font_size", 17)
+	premise.add_theme_color_override("font_color", Color(0.84, 0.87, 0.94))
+	column.add_child(premise)
+	var start := Button.new()
+	start.name = "Start"
+	start.text = "Start"
+	start.custom_minimum_size = Vector2(220, 54)
+	start.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	start.add_theme_font_size_override("font_size", 22)
+	start.pressed.connect(_on_menu_start_pressed)
+	column.add_child(start)
+	var controls := Label.new()
+	controls.name = "Controls"
+	controls.text = menu_controls
+	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	controls.add_theme_font_size_override("font_size", 14)
+	controls.add_theme_color_override("font_color", Color(0.72, 0.78, 0.88))
+	column.add_child(controls)
+	var credit := Label.new()
+	credit.name = "Credit"
+	credit.text = menu_credit
+	credit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	credit.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	credit.add_theme_font_size_override("font_size", 12)
+	credit.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
+	column.add_child(credit)
+
+
+func _on_menu_start_pressed() -> void:
+	_play(CLICK_SOUND)
+	start_game(false)
+
+
+# ---------------------------------------------------------------------------
+# Main menu: attract loop, start and the lent kitchen pieces
+# ---------------------------------------------------------------------------
+
+## True once the player has pressed Start (the capture tool reads this).
+func is_started() -> bool:
+	return _started
+
+
+## Leaves the main menu: hides the title card, gives the kitchen back to the
+## player and — unless [param skip_intro] is set (tests, screenshots) — plays
+## the intro sequence. While the intro runs the gameplay UI stays out of the
+## frame; it is handed over when the sequence ends or is skipped.
+func start_game(skip_intro := false) -> void:
+	if _started:
+		return
+	_started = true
+	_menu.visible = false
+	_stop_attract()
+	if skip_intro or intro == null:
+		_restore_game_ui()
+		return
+	_hide_gameplay_ui()
+	intro.finished.connect(_on_intro_finished, CONNECT_ONE_SHOT)
+	intro.play()
+
+
+func _on_intro_finished() -> void:
+	_restore_game_ui()
+
+
+## The phase UI for the current phase, with the top bar and the placer back.
+func _restore_game_ui() -> void:
+	_top_bar.visible = true
+	_on_phase(day.phase if day != null else DayController.Phase.BUILD)
+	_refresh_money()
+
+
+## The attract loop: while the menu is up the kitchen keeps cooking real orders,
+## never more than [member attract_max_pending] pending at once, so the loss
+## rule (which counts pending orders) can never fire behind the menu.
+func _attract(delta: float) -> void:
+	if service == null or day == null or day.phase != DayController.Phase.BUILD:
+		return
+	_attract_clock -= delta
+	if _attract_clock > 0.0:
+		return
+	_attract_clock = maxf(attract_interval, 0.1)
+	_attract_step()
+
+
+## One attract beat: ask for a real order the kitchen can actually serve. The
+## capture tool calls this directly for its menu screenshot.
+func _attract_step() -> void:
+	if service == null:
+		return
+	if service.orders.active_orders().size() >= attract_max_pending:
+		return
+	service.request_order(_attract_dish())
+
+
+## The next showreel dish: the day's menu, filtered to what this kitchen can
+## serve right now, cycled so the menu has some variety.
+func _attract_dish() -> StringName:
+	var options: Array[StringName] = []
+	if service != null and day != null:
+		for dish: StringName in day.menu:
+			if service.can_serve(dish, [], []).is_empty():
+				options.append(dish)
+	if options.is_empty():
+		return &"burger"
+	_attract_dish_index = (_attract_dish_index + 1) % options.size()
+	return options[_attract_dish_index]
+
+
+## Hands the kitchen over: the lent pieces go back, the showreel's orders are
+## cleared and the purse is reset, so the demo starts exactly as authored.
+func _stop_attract() -> void:
+	_clear_attract_stock()
+	if service == null:
+		return
+	for order in service.orders.active_orders():
+		service.orders.fail(order, "the menu closed")
+		service.board.cancel_for_order(order)
+	service.reset_after_day()
+	if day != null:
+		service.orders.money = day.starting_money
+
+
+## Lends the kitchen the pieces it needs to cook: the shipped venue has no
+## storage and no sink (that is the day-1 lesson), so without this the showreel
+## behind the menu would have nothing to do. Lent pieces are never paid for and
+## never written into the map (record is false); [method start_game] takes them
+## back.
+func _ensure_attract_stock() -> void:
+	if kitchen == null or service == null or kitchen.data == null:
+		return
+	# The station list must match the layout we are looking at (a map load may
+	# have replaced it since the last rebuild).
+	service.rebuild_stations()
+	for id: StringName in attract_stock:
+		var def := FurnitureCatalog.find(id)
+		if def == null or _def_tag_present(def):
+			continue
+		_place_attract_piece(def)
+	if not _attract_pieces.is_empty():
+		service.rebuild_stations()
+
+
+## True when the kitchen already has a station carrying any of the piece's tags
+## (so a kitchen with storage is not lent a shelf as well).
+func _def_tag_present(def: FurnitureDef) -> bool:
+	for tag: StringName in def.tags:
+		for station in service.stations:
+			if station.has_tag(tag):
+				return true
+	return false
+
+
+func _place_attract_piece(def: FurnitureDef) -> void:
+	var cell := _find_attract_cell(def)
+	if cell == ATTRACT_NO_CELL:
+		return
+	var inst := kitchen.place_furniture(def, cell, 0, {}, false)
+	if inst != null:
+		_attract_pieces.append(inst)
+
+
+## Somewhere sensible for a lent piece: a free cell that touches the existing
+## furniture, nearest the cooking line first; any free cell as a fallback.
+func _find_attract_cell(def: FurnitureDef) -> Vector2i:
+	if kitchen.data == null:
+		return ATTRACT_NO_CELL
+	var bounds := kitchen.data.floor_bounds()
+	var focus := _cooking_cell()
+	var best := ATTRACT_NO_CELL
+	var best_score := 1 << 30
+	var fallback := ATTRACT_NO_CELL
+	for z in range(bounds.position.y, bounds.end.y):
+		for x in range(bounds.position.x, bounds.end.x):
+			var cell := Vector2i(x, z)
+			if not kitchen.can_place(def, cell, 0):
+				continue
+			if fallback == ATTRACT_NO_CELL:
+				fallback = cell
+			if not _touches_furniture(cell):
+				continue
+			var score := absi(cell.x - focus.x) + absi(cell.y - focus.y)
+			if score < best_score:
+				best_score = score
+				best = cell
+	return best if best != ATTRACT_NO_CELL else fallback
+
+
+func _touches_furniture(cell: Vector2i) -> bool:
+	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		if kitchen.furniture_at(cell + offset) != null:
+			return true
+	return false
+
+
+func _cooking_cell() -> Vector2i:
+	if service != null:
+		for station in service.stations:
+			if station.has_tag(&"cooking") and not station.cells.is_empty():
+				return station.cells[0]
+	if kitchen != null:
+		var bounds := kitchen.get_world_bounds()
+		if bounds.size != Vector2.ZERO:
+			return Vector2i(roundi(bounds.get_center().x), roundi(bounds.get_center().y))
+	return Vector2i.ZERO
+
+
+func _clear_attract_stock() -> void:
+	var removed := false
+	if kitchen != null:
+		for inst in _attract_pieces:
+			if is_instance_valid(inst):
+				kitchen.remove_furniture(inst, false)
+				removed = true
+	_attract_pieces.clear()
+	if removed and service != null:
+		service.rebuild_stations()
+
+
+## A map load / the capture's layout override replaces every furniture instance,
+## lent pieces included: drop the stale references and re-stock if the new map
+## still cannot cook.
+func _on_layout_rebuilt() -> void:
+	_attract_pieces.clear()
+	if not _started:
+		_ensure_attract_stock()
+
+
 # ---------------------------------------------------------------------------
 # Phases
 # ---------------------------------------------------------------------------
+
+## While the menu is up it owns the screen: the shop, the order panel, the top
+## bar and the summary are hidden and the placer stands down.
+func _apply_menu_gate() -> void:
+	_menu.visible = true
+	_hide_gameplay_ui()
+	if camera_rig != null:
+		camera_rig.set_distance(MENU_DISTANCE)
+
+
+## Hides everything that belongs to a running game (menu, intro and horror
+## cutscenes all want the kitchen alone on screen).
+func _hide_gameplay_ui() -> void:
+	_top_bar.visible = false
+	_catalog_panel.visible = false
+	_order_panel.visible = false
+	_summary.visible = false
+	_backdrop.visible = false
+	if placer != null:
+		placer.set_enabled(false)
+	if kitchen != null:
+		kitchen.set_work_markers([], false)
+
 
 func _on_phase(phase: int) -> void:
 	match phase:
@@ -488,6 +831,8 @@ func _on_phase(phase: int) -> void:
 		DayController.Phase.SUMMARY:
 			_summary.visible = true
 			_play(DONE_SOUND)
+	if not _started:
+		_apply_menu_gate()
 
 
 func _tween_frame(anchor_right: float, inset_x: float, inset_top: float, _radius: float, radius: float) -> void:
@@ -763,12 +1108,27 @@ func _finish_horror_cutscene(summary: Dictionary) -> void:
 		subtitle = "the kitchen is quiet now"
 	await cutscene.title("DAY LOST", subtitle, 2.0)
 	await cutscene.shake(0.3, 0.5)
+	# The demo's farewell, once: the horror is the ending, and the card says so.
+	if not _ending_shown:
+		_ending_shown = true
+		await cutscene.title(ending_title, ending_subtitle, ending_hold)
 	cutscene.set_slow_motion(service, 1.0)
 	await cutscene.finish()
 	_horror_running = false
 	_summary.visible = true
 	if service != null:
 		service.sim_speed = 1.0
+
+
+## Dev / capture helper: plays the farewell card on its own (the capture's
+## --thanks screenshot), outside the horror flow.
+func play_ending_card() -> void:
+	if cutscene == null:
+		return
+	_ending_shown = true
+	cutscene.begin()
+	await cutscene.title(ending_title, ending_subtitle, ending_hold)
+	cutscene.finish()
 
 
 func _refresh_money() -> void:
@@ -840,6 +1200,17 @@ func _panel_style() -> StyleBoxFlat:
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(12)
 	style.set_content_margin_all(12)
+	return style
+
+
+## The main menu card: darker and roomier than the gameplay panels, so the title
+## reads over a busy kitchen.
+func _menu_style() -> StyleBoxFlat:
+	var style := _panel_style()
+	style.bg_color = Color(0.05, 0.06, 0.085, 0.96)
+	style.border_color = Color(0.36, 0.42, 0.55, 0.95)
+	style.set_corner_radius_all(18)
+	style.set_content_margin_all(30)
 	return style
 
 

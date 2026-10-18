@@ -49,6 +49,17 @@ Landed so far:
 
 ### Prototype 6 — the demo arc
 
+**Flow**: main menu (over a live kitchen running a real-order attract loop) → Start → five-card intro
+cutscene (deadpan premise, one growl + light dip as the only horror hint) → days 1-3 scripted → the
+squeeze → the horror → "THANK YOU FOR PLAYING / you have satisfied the customers" (the title's pun).
+`game_ui.start_game(skip_intro)` is the entry point; the capture calls it with `true` so headless runs
+and screenshots skip the menu and intro. The menu *lends* the venue storage, a fridge and a sink for
+the showreel (`attract_stock`) and takes them back at Start — the shipped kitchen deliberately cannot
+cook, that is day 1's lesson. Screenshot-only capture flags: `--menu`, `--intro`, `--intro-card=N`,
+`--intro-door`, `--intro-skip`, `--intro-done`, `--thanks`.
+- **The two mascots** (`mascot_red` / `mascot_yellow`, decor in the start map, never named): the
+  delivery platforms, recognised only by their colours (red/white, yellow/black).
+
 - **Days 1-3 are scripted** (`DayController.DAY_SCRIPT`, no RNG): day 1 = 3 plain burgers, and the
   venue ships **without storage**, so the first thing the player does is buy a fridge or shelf;
   day 2 = 3 orders, two with `+ fries`, which now require a **frying station** (`fryer`, the
@@ -268,6 +279,10 @@ orders, jobs, items, workers at shutdown).
   owned, so they don't get saved into the scene.
 - `StationInstance.work_target()` is the cell a worker operates from; a 1×1 station's work
   target is its own cell (the worker stands adjacent).
+- **A scene-authored `material_override` does not survive placement**: `_apply_furniture_tints`
+  clears overrides (it has to — the drag ghost *is* an override), so a prop cannot ship its own
+  paint that way. `resources/props/mascot_*.tscn` carry their colours on the meshes' own surface
+  materials instead.
 - "A job lost its inputs" was never noise — it is theft: a carried item landed on its consumer's
   station with no hold, so the next plan's `find_free` took it. The landing handoff is
   `_landing_holder` (the carry's parent if alive, else the producer's `reserved_output_for`), and

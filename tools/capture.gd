@@ -3,6 +3,10 @@ extends Node
 ## quits. Run with:
 ##   godot --path . res://tools/capture.tscn
 ## (Used by the agent to check the visuals without a human at the keyboard.)
+##
+## The game boots into the main menu; the capture leaves it with
+## [code]start_game(true)[/code] right away (the --menu / --intro* / --thanks
+## flags stage a cinematic shot instead and skip every test flag).
 
 const OUT_PATH := "/tmp/opencode/kitchen.png"
 
@@ -37,6 +41,22 @@ func _ready() -> void:
 		kitchen.layout = null
 		kitchen.layout_file = layout_override if not layout_override.is_empty() \
 			else "res://resources/layouts/demo_kitchen.txt"
+	# The game boots into the main menu; the capture always leaves it right away
+	# (headless runs and screenshots must not sit behind it). The cinematic flags
+	# below stage one menu / intro / ending shot instead and skip every test.
+	var args := OS.get_cmdline_user_args()
+	var shoot_only := _is_cinematic(args)
+	var ui_root := scene.get_node_or_null("UI")
+	var boot_service := scene.find_child("Service", true, false) as Service
+	if boot_service != null:
+		# Switching the map leaves the world seeded for the old one (the trays
+		# sit at the old intake): put it back into a clean, comparable state.
+		_reset_world(boot_service)
+	if ui_root != null:
+		if shoot_only:
+			await _stage_cinematic(ui_root, scene, args)
+		else:
+			await _test_menu(ui_root, scene)
 	var rig := scene.find_child("CameraRig", true, false) as CameraRig
 	# Optional view overrides, e.g.:
 	#   godot --path . res://tools/capture.tscn -- --pitch=88 --dist=26
@@ -91,19 +111,19 @@ func _ready() -> void:
 		for child in placer.get_children():
 			if child is Node3D:
 				(child as Node3D).visible = false
-	if "--selftest" in OS.get_cmdline_user_args() and kitchen != null:
+	if not shoot_only and "--selftest" in OS.get_cmdline_user_args() and kitchen != null:
 		await _self_test(kitchen, scene)
-	if "--arc" in OS.get_cmdline_user_args():
+	if not shoot_only and "--arc" in OS.get_cmdline_user_args():
 		_run_arc(scene)
-	if "--furniture" in OS.get_cmdline_user_args() and kitchen != null:
+	if not shoot_only and "--furniture" in OS.get_cmdline_user_args() and kitchen != null:
 		_place_demo_furniture(kitchen)
-	if "--sim" in OS.get_cmdline_user_args():
+	if not shoot_only and "--sim" in OS.get_cmdline_user_args():
 		_run_sim(scene)
-	if "--sim-day" in OS.get_cmdline_user_args():
+	if not shoot_only and "--sim-day" in OS.get_cmdline_user_args():
 		_run_day(scene)
-	if "--start-day" in OS.get_cmdline_user_args():
+	if not shoot_only and "--start-day" in OS.get_cmdline_user_args():
 		_start_day(scene)
-	if "--designer" in OS.get_cmdline_user_args():
+	if not shoot_only and "--designer" in OS.get_cmdline_user_args():
 		# Opens the level designer (the map editor + its authoring panel).
 		var editor := scene.find_child("MapPaintController", true, false) as MapPaintController
 		if editor != null:
@@ -113,15 +133,15 @@ func _ready() -> void:
 		if panel != null:
 			panel.set_designer_visible(true)
 			print("[designer] visible=", panel.visible, " panel_node=", panel.get_node_or_null("DesignerPanel"))
-	if "--horror" in OS.get_cmdline_user_args() or "--horror=" in " ".join(OS.get_cmdline_user_args()):
+	if not shoot_only and ("--horror" in OS.get_cmdline_user_args() or "--horror=" in " ".join(OS.get_cmdline_user_args())):
 		if "--no-cutscene" in OS.get_cmdline_user_args():
 			var ui := scene.get_node_or_null("UI")
 			if ui != null:
 				ui.cutscene = null
 		_run_horror(scene)
-	if "--sim-ticks=" in " ".join(OS.get_cmdline_user_args()) and kitchen != null:
+	if not shoot_only and "--sim-ticks=" in " ".join(OS.get_cmdline_user_args()) and kitchen != null:
 		_run_sim_ticks(scene)
-	if "--check" in OS.get_cmdline_user_args() and kitchen != null and kitchen.data != null:
+	if not shoot_only and "--check" in OS.get_cmdline_user_args() and kitchen != null and kitchen.data != null:
 		var text: String = kitchen.data.to_text()
 		var reparsed := KitchenLayout.from_text(text)
 		var same_floors: bool = reparsed.floors.size() == kitchen.data.floors.size()
@@ -171,11 +191,11 @@ func _ready() -> void:
 			" match=", points_match,
 			" | furniture ", kitchen.data.furniture.size(), " -> ", reparsed.furniture.size(),
 			" match=", furniture_match)
-	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
+	if not shoot_only and "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
 		kitchen.paint_floor_tint(Vector2i(11, 5), Color(0.95, 0.35, 0.35))
-	if "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
+	if not shoot_only and "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
-	if "--item-showcase" in OS.get_cmdline_user_args():
+	if not shoot_only and "--item-showcase" in OS.get_cmdline_user_args():
 		_item_showcase(scene)
 	print("kitchen: ", kitchen, " data=", kitchen.data if kitchen != null else null,
 		" floors=", kitchen.data.floors.size() if kitchen != null and kitchen.data != null else -1)
@@ -186,11 +206,143 @@ func _ready() -> void:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var image := sub.get_texture().get_image()
-	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null and rig != null:
+	if not shoot_only and "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null and rig != null:
 		_pixel_test(image, kitchen, rig)
 	var err := image.save_png(OUT_PATH)
 	print("screenshot %s (err=%d)" % [OUT_PATH, err])
 	get_tree().quit()
+
+
+## True when the command line asks for a staged cinematic shot (the menu, an
+## intro beat, the farewell card): those runs skip every test flag.
+func _is_cinematic(args: PackedStringArray) -> bool:
+	for flag in ["--menu", "--intro", "--intro-door", "--intro-skip", "--intro-done", "--thanks"]:
+		if flag in args:
+			return true
+	for arg in args:
+		if arg.begins_with("--intro-card="):
+			return true
+	return false
+
+
+## The pre-game menu: it must be up, the attract loop must be able to ask for a
+## real order (and the kitchen must actually cook it), and start_game must hand
+## the kitchen back in the build phase.
+func _test_menu(ui: Node, scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	if service == null or day == null:
+		return
+	var menu := ui.get_node_or_null("Menu") as Control
+	_expect(not ui.is_started(), "menu: the game boots un-started")
+	_expect(menu != null and menu.visible, "menu: the title panel is up before Start")
+	var start_button := menu.find_child("Start", true, false) as Button if menu != null else null
+	_expect(start_button != null and not start_button.pressed.get_connections().is_empty(),
+		"menu: the Start button is wired")
+	_expect(ui._top_bar != null and not ui._top_bar.visible, "menu: the top bar is hidden")
+	_expect(ui._catalog_panel != null and not ui._catalog_panel.visible, "menu: the shop is hidden")
+	_expect(ui._order_panel != null and not ui._order_panel.visible, "menu: the order panel is hidden")
+	_expect(ui.placer != null and not ui.placer.enabled, "menu: the placer stands down")
+	var before := service.orders.active_orders().size()
+	ui._attract_step()
+	var pending := service.orders.active_orders().size()
+	_expect(pending == before + 1, "menu: the attract loop asks for a real order (%d -> %d)" % [before, pending])
+	_expect(pending <= int(ui.attract_max_pending),
+		"menu: the attract queue is capped at %d" % int(ui.attract_max_pending))
+	# Prove it is a real order: the chibis must cook and serve it.
+	var completed_before: int = service.orders.completed_count
+	var money_before: int = service.orders.money
+	service.run_ticks(400)
+	_expect(service.orders.completed_count > completed_before,
+		"menu: the attract kitchen actually serves (%d -> %d completed)" % [
+			completed_before, service.orders.completed_count])
+	_expect(service.orders.money > money_before, "menu: the showreel's orders pay out")
+	ui.start_game(true)
+	_expect(ui.is_started(), "menu: start_game marks the game started")
+	_expect(menu == null or not menu.visible, "menu: start_game hides the title panel")
+	_expect(day.phase == DayController.Phase.BUILD, "menu: start_game leaves the phase in BUILD")
+	_expect(ui._top_bar != null and ui._top_bar.visible, "menu: the top bar is back")
+	_expect(ui.placer != null and ui.placer.enabled, "menu: the placer is back")
+	_expect(service.orders.active_orders().is_empty(), "menu: the attract orders are cleared at start")
+	_expect(service.orders.money == day.starting_money, "menu: the showreel's earnings are dropped")
+
+
+## Stages one cinematic screenshot: the menu over a busy kitchen (--menu), an
+## intro beat (--intro / --intro-door / --intro-card=N) or the farewell card
+## (--thanks). Every test flag is skipped while one of these is set.
+func _stage_cinematic(ui: Node, scene: Node, args: PackedStringArray) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	if "--menu" in args:
+		if service == null:
+			return
+		# Put the showreel kitchen to work: two orders in flight, mid-service.
+		ui._attract_step()
+		ui._attract_step()
+		service.sim_speed = 0.0
+		service.run_ticks(170)
+		ui._attract_step()
+		service.run_ticks(60)
+		ui.set_process(false)  # freeze the showreel for the shot
+		print("[menu] attract: %d pending, %d completed, %d workers busy" % [
+			service.orders.active_orders().size(), service.orders.completed_count,
+			service.workers_busy()])
+		return
+	if "--thanks" in args:
+		# The real card follows a lost day, long after the menu: leave it first.
+		ui.start_game(true)
+		ui._hide_gameplay_ui()
+		ui.play_ending_card()
+		await _wait_seconds(0.7)
+		return
+	# The intro: start the game for real (no skip) and hold the requested beat.
+	ui.start_game(false)
+	var intro: Node = ui.intro
+	if intro == null:
+		return
+	if "--intro-skip" in args:
+		# Any key (here: the director's own skip hook) must end the sequence and
+		# hand the UI back.
+		var guard := 0.0
+		while guard < 10.0 and int(intro.card_index) < 1:
+			await _wait_seconds(0.05)
+			guard += 0.05
+		ui.cutscene.request_skip()
+		var skipped_at := guard
+		while guard < 20.0 and bool(intro.running):
+			await _wait_seconds(0.05)
+			guard += 0.05
+		_expect(not bool(intro.running),
+			"intro: a skip ends the sequence (key at %.2fs, out %.2fs later)" % [skipped_at, guard - skipped_at])
+		_expect(ui._top_bar.visible, "intro: skipping hands the UI back")
+		return
+	var wanted_card := -1
+	var wanted_door := "--intro-door" in args
+	var wanted_done := "--intro-done" in args
+	for arg in args:
+		if arg.begins_with("--intro-card="):
+			wanted_card = int(arg.split("=")[1])
+	var waited := 0.0
+	while waited < 30.0:
+		var beat := str(intro.beat)
+		var card := int(intro.card_index)
+		if wanted_done and not bool(intro.running):
+			break
+		if not wanted_done and wanted_door and beat == "front_door":
+			break
+		if not wanted_done and not wanted_door and wanted_card >= 0 and card >= wanted_card:
+			break
+		if not wanted_done and not wanted_door and wanted_card < 0 and card >= 0:
+			break
+		if not bool(intro.running):
+			break
+		await _wait_seconds(0.05)
+		waited += 0.05
+	print("[intro] beat=%s card=%d running=%s (waited %.2fs)" % [
+		intro.beat, intro.card_index, intro.running, waited])
+
+
+func _wait_seconds(seconds: float) -> void:
+	await get_tree().create_timer(maxf(seconds, 0.0)).timeout
 
 
 ## Samples rendered pixels to catch things that "exist" but are invisible
@@ -825,6 +977,17 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(start_ids.has(&"stove") and start_ids.has(&"assembly_table") and start_ids.has(&"worker_post"),
 		"designer: the start map ships a cooking line and staff")
 	_expect(start_ids.has(&"cutting_table"), "designer: the start map has a prep surface")
+	# The menu lends a kitchen that cannot cook the pieces it is missing (the
+	# shipped start map has no storage and no sink); start_game takes them back.
+	var menu_ui := scene.get_node_or_null("UI")
+	var menu_svc := scene.find_child("Service", true, false) as Service
+	if menu_ui != null and menu_svc != null:
+		menu_ui._ensure_attract_stock()
+		_expect(menu_svc.can_serve(&"burger", [], []).is_empty(),
+			"menu: the lent pieces make the shipped start kitchen cookable")
+		menu_ui._clear_attract_stock()
+		_expect(not menu_svc.can_serve(&"burger", [], []).is_empty(),
+			"menu: the lent pieces go back when the game starts")
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")

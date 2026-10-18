@@ -106,6 +106,16 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
 	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
+	# The two delivery platforms, recognised only by their colours. Never named,
+	# never sold: they simply stand in the restaurant.
+	var mascot_red := _make("mascot_red", "Red Mascot", "mascot_red.tscn", Vector2i(1, 1), 0,
+		["decor"], &"decor", false, "", PROPS_DIR)
+	mascot_red.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
+	out.append(mascot_red)
+	var mascot_yellow := _make("mascot_yellow", "Yellow Mascot", "mascot_yellow.tscn", Vector2i(1, 1), 0,
+		["decor"], &"decor", false, "", PROPS_DIR)
+	mascot_yellow.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
+	out.append(mascot_yellow)
 	# Stocked versions of the storage pieces: the goods are part of the prop, so
 	# they read at a glance as "this is where ingredients come from".
 	var stocked_shelf := _make("shelf_stocked", "Shelf", "shelf_stocked.tscn", Vector2i(1, 1), 70,
