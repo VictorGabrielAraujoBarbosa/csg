@@ -173,9 +173,6 @@ func _ready() -> void:
 			" match=", furniture_match)
 	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
 		kitchen.paint_floor_tint(Vector2i(9, 3), Color(0.95, 0.35, 0.35))
-		# The pixel samples check floor rendering, so the camera-facing wall
-		# hiding is switched off for them (it has its own screenshots).
-		kitchen.hide_near_walls = false
 	if "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
 	if "--item-showcase" in OS.get_cmdline_user_args():
@@ -787,7 +784,7 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		window_piece.free()
 	# --- camera-facing outer walls hide themselves (never interior ones) ---
 	kitchen.hide_near_walls = true
-	await get_tree().process_frame
+	kitchen._update_near_walls()  # the capture runs with node processing off
 	var outer_entries := 0
 	var hidden_nodes := 0
 	for wall_entry in kitchen._wall_entries:
