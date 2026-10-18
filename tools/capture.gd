@@ -172,7 +172,7 @@ func _ready() -> void:
 			" | furniture ", kitchen.data.furniture.size(), " -> ", reparsed.furniture.size(),
 			" match=", furniture_match)
 	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
-		kitchen.paint_floor_tint(Vector2i(9, 3), Color(0.95, 0.35, 0.35))
+		kitchen.paint_floor_tint(Vector2i(11, 5), Color(0.95, 0.35, 0.35))
 	if "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
 	if "--item-showcase" in OS.get_cmdline_user_args():
@@ -203,7 +203,7 @@ func _pixel_test(image: Image, kitchen: Kitchen, rig: CameraRig) -> void:
 	var b := _sample_cell(image, cam, kitchen, Vector2i(4, 6))
 	var delta := absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
 	_expect(delta > 0.004, "checker: adjacent floor tiles differ (delta %.4f)" % delta)
-	var tinted := _sample_cell(image, cam, kitchen, Vector2i(9, 3))
+	var tinted := _sample_cell(image, cam, kitchen, Vector2i(11, 5))
 	_expect(tinted.r > tinted.g + 0.05 and tinted.r > tinted.b + 0.05,
 		"floor tint: painted cell renders red (%.2f %.2f %.2f)" % [tinted.r, tinted.g, tinted.b])
 
@@ -1051,7 +1051,24 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		mod_order.state = Order.State.FAILED
 		kitchen.remove_furniture_at(fryer_cell)
 		service.rebuild_stations()
-		# --- the Start Day gate ---
+			# --- the menu: salads and fries are dishes too ---
+		var salad_probe := Order.new()
+		salad_probe.id = -1
+		salad_probe.recipe_id = &"salad"
+		var salad_variant := RecipeCatalog.variant_of(&"salad", [])
+		_expect(salad_variant != null and salad_variant.output == &"salad",
+			"menu: a salad is a dish that can be plated")
+		_expect(service.can_serve(&"salad", [], []).is_empty(), "menu: a salad order plans")
+		_expect(service.can_serve(&"fries", [], []).is_empty(), "menu: a portion of fries plans")
+		_expect(ModifierCatalog.applies_to(&"burger", &"no_salad"),
+			"menu: a burger can be ordered without salad")
+		_expect(not ModifierCatalog.applies_to(&"salad", &"no_salad"),
+			"menu: a salad can never be ordered without salad")
+		_expect(not ModifierCatalog.applies_to(&"fries", &"no_meat"),
+			"menu: fries can never be ordered without meat")
+		_expect(ModifierCatalog.applies_to(&"salad", &"add_fries"),
+			"menu: sides work with any dish")
+	# --- the Start Day gate ---
 		_expect(service.can_serve(&"burger", [], []).is_empty(),
 			"gate: the demo kitchen can serve a plain burger")
 		# Without a sink the tray pool can never refill: the day would start and

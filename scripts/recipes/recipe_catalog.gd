@@ -35,6 +35,15 @@ static func clear_caches() -> void:
 static func variant_of(base_id: StringName, removes: Array) -> RecipeDef:
 	var base := find(base_id)
 	if base == null:
+		# A dish is identified by the ITEM it produces; its recipe may be named
+		# differently (make_salad -> salad, fry_fries -> fries). Without this a
+		# salad order could never be plated.
+		for candidate in producers_of(base_id):
+			if candidate.is_source:
+				continue
+			base = candidate
+			break
+	if base == null:
 		return null
 	if removes.is_empty():
 		return base

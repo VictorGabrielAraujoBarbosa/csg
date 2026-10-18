@@ -27,7 +27,7 @@ signal reasons_changed(reasons: Array)
 @export var orders_per_day_extra := 1
 @export var max_modifiers := 2
 @export var base_seed := 20261012
-@export var menu: Array[StringName] = [&"burger"]
+@export var menu: Array[StringName] = [&"burger", &"salad", &"fries"]
 
 @export_group("Economy & loss")
 ## Enough to buy the pieces a starter kitchen is missing — a sink, a shelf and

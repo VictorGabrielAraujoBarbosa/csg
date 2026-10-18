@@ -36,8 +36,10 @@ static func generate(day_number: int, seed_value_in: int, menu: Array, modifier_
 			if def == null:
 				continue
 			# "+ extra cheese" and "- no cheese" on one ticket is nonsense: a
-			# modifier whose ingredient is already spoken for is skipped.
-			if touched.has(def.item):
+			# modifier whose ingredient is already spoken for is skipped. The
+			# same goes for a modifier the dish cannot carry at all ("- no
+			# salad" on a salad).
+			if touched.has(def.item) or not ModifierCatalog.applies_to(dish, id):
 				continue
 			touched.append(def.item)
 			if def.kind == ModifierDef.Kind.ADD:

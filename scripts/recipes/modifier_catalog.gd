@@ -22,6 +22,24 @@ static func find(id: StringName) -> ModifierDef:
 	return _by_id.get(id)
 
 
+## A modifier applies to a dish when it is a side (an add works with anything)
+## or when the dish actually contains the ingredient being removed. Without this
+## a salad could be ordered "no salad".
+static func applies_to(dish_id: StringName, modifier_id: StringName) -> bool:
+	var mod := find(modifier_id)
+	if mod == null:
+		return false
+	if mod.kind == ModifierDef.Kind.ADD:
+		return true
+	for recipe in RecipeCatalog.producers_of(dish_id):
+		if recipe.is_source:
+			continue
+		for entry in recipe.inputs:
+			if entry.get("item", &"") == mod.item:
+				return true
+	return false
+
+
 ## "No Cheese" -> "- no cheese", "Fries" -> "+ fries" (for order cards).
 static func label(id: StringName) -> String:
 	var def := find(id)
