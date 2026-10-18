@@ -196,7 +196,7 @@ func flee_from(threats: Array[Vector2i]) -> void:
 	if eaten or threats.is_empty():
 		return
 	if _carrying != null:
-		service.drop_carried(_carrying, cell, job.parent if job != null else null)
+		service.drop_carried(_carrying, cell, job)
 		_carrying = null
 	if job != null:
 		service.board.cancel(job, "fleeing")

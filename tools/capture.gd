@@ -9,6 +9,13 @@ const OUT_PATH := "/tmp/opencode/kitchen.png"
 ## Horror bookkeeping for the self-test (lambdas cannot capture locals by
 ## reference, so the counters live on the node).
 var _horror_eaten := 0
+## "A job lost its inputs" is a theft, not noise: a served day must not have one.
+var _lost_inputs_seen := 0
+
+
+func _count_lost_inputs(text: String) -> void:
+	if text.contains("lost its inputs"):
+		_lost_inputs_seen += 1
 
 
 func _ready() -> void:
@@ -303,6 +310,8 @@ func _run_day(scene: Node) -> void:
 		print("[day-sim] missing service or day controller")
 		return
 	service.worker_consumed.connect(func(_w: Worker) -> void: _horror_eaten += 1)
+	service.warning.connect(_count_lost_inputs)
+	_lost_inputs_seen = 0
 	service.sim_speed = 0.0
 	service.orders.arrive_on_turn_in = false
 	day.day = 0
@@ -336,6 +345,8 @@ func _run_day(scene: Node) -> void:
 		"day: every served order paid out")
 	day.finish_day()
 	_expect(day.phase == DayController.Phase.BUILD, "day: back to the build phase")
+	_expect(_lost_inputs_seen == 0,
+		"day: no job lost its inputs while serving (got %d)" % _lost_inputs_seen)
 	# loss path: too many pending orders -> the customers break in and eat the staff
 	_horror_eaten = 0
 	_expect(day.start_day(), "day: a second day starts")

@@ -514,7 +514,7 @@ func finish_transfer(job: Job) -> void:
 	items.finish_carry(item, job.target_cell, kitchen.surface_height(job.target_cell))
 	# The item was fetched FOR a consumer: it stays held for it, or another
 	# order's job can take it off the station and the consumer starves.
-	item.reserved_by = job.parent if _job_alive(job.parent) else null
+	item.reserved_by = _landing_holder(job)
 	job.state = Job.State.DONE
 	item_dropped.emit(item, job.target_cell)
 	_log("carried %s -> %s" % [item.def.id, job.target_cell])
@@ -589,9 +589,9 @@ func fail_job(job: Job, reason: String) -> void:
 		plan_order(job.order)
 
 
-func drop_carried(item: WorldItem, cell: Vector2i, keep_for: Job = null) -> void:
+func drop_carried(item: WorldItem, cell: Vector2i, from_job: Job = null) -> void:
 	items.finish_carry(item, cell, kitchen.surface_height(cell))
-	item.reserved_by = keep_for if _job_alive(keep_for) else null
+	item.reserved_by = _landing_holder(from_job)
 
 
 ## Payload stamping.
@@ -762,6 +762,22 @@ func _retry_stalled_orders() -> void:
 		else:
 			order.state = Order.State.UNPLANNABLE
 			_log("stalled order %d cannot be re-planned" % order.id)
+
+
+## Who a carried item belongs to the moment it lands: the carry's parent when
+## that job is still working (a carry planned FOR its consumer), or — for a
+## follow-up carry, whose parent is the producer and is already done — the
+## consumer the producer made the item for (reserved_output_for). Handing it to
+## nobody here is what let another order's plan steal it ("a job lost its
+## inputs").
+func _landing_holder(job: Job) -> Job:
+	if job == null or job.parent == null:
+		return null
+	if _job_alive(job.parent):
+		return job.parent
+	if job.parent.reserved_output_for != null and _job_alive(job.parent.reserved_output_for):
+		return job.parent.reserved_output_for
+	return null
 
 
 ## A job that is still on the board and still wants something.
