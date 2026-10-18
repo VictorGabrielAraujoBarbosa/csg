@@ -87,6 +87,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.49, 0.1225, -0.01)
 material_override = SubResource("StandardMaterial3D_kerb")
 mesh = SubResource("BoxMesh_kerb_side")
 
+; The plaque leans back off the kerb's top-inner corner (0, 0.185, 0.205), so its
+; bottom edge rests on the rail and its face points up at the game camera
+; (pitch 50). Careful with the sign: .tscn writes a basis row-major, so the
+; middle three numbers are the Y axis — Y must point UP and BACK (-Z).
 [node name="Plaque" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.819152, 0.5735765, 0, -0.5735765, 0.819152, 0, 0.226, 0.176)
 material_override = SubResource("StandardMaterial3D_plaque")

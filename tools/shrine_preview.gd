@@ -169,10 +169,12 @@ func _tint_like_a_worker(inst: FurnitureInstance, tint: Color) -> void:
 ## a 2x1 display painted red/white and yellow/black" can be checked without
 ## trusting the render.
 func _report_shrine(def: FurnitureDef) -> void:
-	var node := def.scene.instantiate() as Node3D
-	if node == null:
-		_check(false, "corporate_shrine.tscn has a Node3D root", "the root is %s" % node.get_class())
+	var instance := def.scene.instantiate()
+	if not instance is Node3D:
+		_check(false, "corporate_shrine.tscn has a Node3D root", "the root is %s" % instance.get_class())
+		instance.free()
 		return
+	var node := instance as Node3D
 	var aabb := MeshBounds.combined_aabb(node)
 	var footprint := def.resolved_footprint()
 	var paint: Array = []
