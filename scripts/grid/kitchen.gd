@@ -2054,7 +2054,7 @@ func _register_wall_entry(edges: Array, node: Node3D) -> void:
 		for v in _edge_vertices(k):
 			if not vertices.has(v):
 				vertices.append(v)
-	_wall_entries.append({"nodes": [node], "vertices": vertices})
+	_wall_entries.append({"nodes": [node], "vertices": vertices, "keys": edges.duplicate()})
 
 
 func _build_columns_for(vertices: Array[Vector2i]) -> void:
@@ -2131,12 +2131,26 @@ func _update_near_walls() -> void:
 		return
 	to_cam = to_cam.normalized()
 	for entry in _wall_entries:
+		if not _is_outer_entry(entry):
+			continue  # interior walls are never hidden
 		var nodes: Array = entry.get("nodes", [])
 		for node: Node3D in nodes:
 			if not is_instance_valid(node):
 				continue
 			var offset := Vector2(node.global_position.x - centre.x, node.global_position.z - centre.y)
 			node.visible = offset.dot(to_cam) <= near_wall_bias
+
+
+## True when a wall piece sits on the map's shell (floor on one side, void on
+## the other) rather than between two rooms.
+func _is_outer_entry(entry: Dictionary) -> bool:
+	if data == null:
+		return false
+	for k: Vector3i in entry.get("keys", []):
+		var cells := KitchenLayout.edge_cells(k)
+		if data.has_floor(cells[0]) != data.has_floor(cells[1]):
+			return true
+	return false
 
 
 func _region_for(keys: Array[Vector3i]) -> Rect2i:
