@@ -216,7 +216,6 @@ var _spinner_mesh: ArrayMesh = null
 
 func _ready() -> void:
 	rebuild()
-	set_process(false)
 
 
 ## The real-time clock of every world marker. Never tied to the tick rate, and
@@ -231,11 +230,10 @@ func _process(delta: float) -> void:
 		_animate_spinners(delta)
 		animating = true
 	_update_near_walls()
-	if not animating and not hide_near_walls:
-		set_process(false)
 
 
 func rebuild() -> void:
+	set_process(true)  # the wall/marker update must never be left switched off
 	_load_layout()
 	_clear_markers()
 	if is_instance_valid(_generated):
@@ -1319,7 +1317,6 @@ func _clear_markers() -> void:
 	if is_instance_valid(_markers_root):
 		_markers_root.free()
 	_markers_root = null
-	set_process(false)
 
 
 ## Flat unshaded decal material (alpha blended, no culling), cached by look.

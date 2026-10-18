@@ -785,6 +785,20 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(window_piece != null, "the native window piece loads")
 	if window_piece != null:
 		window_piece.free()
+	# --- camera-facing outer walls hide themselves (never interior ones) ---
+	kitchen.hide_near_walls = true
+	await get_tree().process_frame
+	var outer_entries := 0
+	var hidden_nodes := 0
+	for wall_entry in kitchen._wall_entries:
+		if kitchen._is_outer_entry(wall_entry):
+			outer_entries += 1
+		for wall_node: Node3D in wall_entry.get("nodes", []):
+			if not wall_node.visible:
+				hidden_nodes += 1
+	_expect(outer_entries > 0, "near walls: the map has an outer shell to hide")
+	_expect(hidden_nodes > 0,
+		"near walls: the shell facing the camera is hidden (%d of %d entries)" % [hidden_nodes, outer_entries])
 	# --- work tiles: the tiles a worker can operate a piece from ---
 	kitchen.set_work_markers([Vector2i(2, 2), Vector2i(3, 2)], true)
 	_expect(kitchen._work_root != null and kitchen._work_root.visible
