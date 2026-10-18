@@ -267,8 +267,10 @@ func _try_place() -> void:
 	if _grabbed != null:
 		_drop_grab()
 		return
-	if not _valid:
-		# Clicking an occupied cell picks that piece up for rearranging.
+	if not _valid or current_def() == null:
+		# Clicking an occupied cell picks that piece up for rearranging. With
+		# nothing selected there is no ghost to validate, so this is also how a
+		# piece is picked up after a placement cleared the selection.
 		var existing := kitchen.furniture_at(_hover_cell)
 		if existing != null:
 			_grab(existing)

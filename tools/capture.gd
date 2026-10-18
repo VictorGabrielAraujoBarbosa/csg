@@ -722,6 +722,27 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	kitchen.cancel_grab(dragging)
 	_expect(kitchen.furniture_at(Vector2i(12, 9)) == dragging, "cancelling a drag returns the piece home")
 	kitchen.remove_furniture_at(Vector2i(12, 9))
+	# --- picking a piece up with nothing selected (after a placement) ---
+	var placer_pick := scene.find_child("PlaceController", true, false) as PlaceController
+	if placer_pick != null:
+		placer_pick.has_selection = false
+		placer_pick._has_hover = true
+		placer_pick._hover_cell = Vector2i(3, 1)
+		placer_pick._valid = true  # stale validity is the trap
+		placer_pick._try_place()
+		_expect(placer_pick._grabbed != null, "build: a piece is pickable with nothing selected")
+		placer_pick._cancel_grab()
+		placer_pick._has_hover = false
+	# --- work tiles exist for a plain station, not only for zoned ones ---
+	var work_svc := scene.find_child("Service", true, false) as Service
+	var stove_station: StationInstance = null
+	if work_svc != null:
+		for station: StationInstance in work_svc.stations:
+			if station.def != null and station.def.id == &"stove":
+				stove_station = station
+				break
+	_expect(stove_station != null and not stove_station.work_tiles.is_empty(),
+		"work tiles: a plain 1x1 station knows where a worker can stand")
 	# --- 2 m windows and doorways (painted as pairs, rendered with the native piece) ---
 	var win_a := KitchenLayout.edge_key(Vector2i(3, 0), KitchenLayout.DIR_Z)
 	var win_b := KitchenLayout.edge_key(Vector2i(4, 0), KitchenLayout.DIR_Z)

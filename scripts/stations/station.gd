@@ -15,6 +15,10 @@ var output_cells: Array[Vector2i] = []
 ## Where a worker would stand to operate it (filled in by the service using
 ## the kitchen's walkability, may be empty).
 var work_cells: Array[Vector2i] = []
+## Display-only: the tiles a worker can stand on to operate this piece. Zoned
+## stations declare theirs; the service fills this in for everything else, so
+## the UI can show "interactible from here" for a plain 1x1 stove too.
+var work_tiles: Array[Vector2i] = []
 ## Job currently occupying it (instant executor / worker).
 var busy_by: Variant = null
 

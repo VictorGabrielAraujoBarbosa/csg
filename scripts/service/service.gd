@@ -683,7 +683,30 @@ func rebuild_stations() -> void:
 		stations.append(StationInstance.from_furniture(inst))
 	for cell: Vector2i in kitchen.data.points:
 		stations.append(StationInstance.from_point(cell, kitchen.data.points[cell]))
+	for station in stations:
+		station.work_tiles = _work_tiles_for(station)
 	_log("stations: %d" % stations.size())
+
+
+## The walkable tiles around a station, where a worker can stand to use it.
+## Zoned stations already know their work cell; this is for the plain pieces.
+func _work_tiles_for(station: StationInstance) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if kitchen == null or kitchen.data == null:
+		return out
+	if not station.work_cells.is_empty():
+		return station.work_cells.duplicate()
+	for cell: Vector2i in station.cells:
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = cell + step
+			if out.has(n) or station.cells.has(n):
+				continue
+			if not kitchen.is_walkable(n):
+				continue
+			if not kitchen.can_cross(cell, n):
+				continue
+			out.append(n)
+	return out
 
 
 func _seed_trays() -> void:

@@ -618,7 +618,7 @@ func _update_work_markers() -> void:
 	if inst != null:
 		var station := _station_for(inst)
 		if station != null:
-			cells = station.work_cells
+			cells = station.work_tiles
 	kitchen.set_work_markers(cells, not cells.is_empty())
 
 
