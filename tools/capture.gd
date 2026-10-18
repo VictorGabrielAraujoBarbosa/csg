@@ -172,7 +172,7 @@ func _ready() -> void:
 			" | furniture ", kitchen.data.furniture.size(), " -> ", reparsed.furniture.size(),
 			" match=", furniture_match)
 	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
-		kitchen.paint_floor_tint(Vector2i(6, 3), Color(0.95, 0.35, 0.35))
+		kitchen.paint_floor_tint(Vector2i(9, 3), Color(0.95, 0.35, 0.35))
 		# The pixel samples check floor rendering, so the camera-facing wall
 		# hiding is switched off for them (it has its own screenshots).
 		kitchen.hide_near_walls = false
@@ -202,11 +202,11 @@ func _pixel_test(image: Image, kitchen: Kitchen, rig: CameraRig) -> void:
 	var cam := rig.get_node_or_null("Camera3D") as Camera3D
 	if cam == null:
 		return
-	var a := _sample_cell(image, cam, kitchen, Vector2i(2, 6))
-	var b := _sample_cell(image, cam, kitchen, Vector2i(2, 7))
+	var a := _sample_cell(image, cam, kitchen, Vector2i(4, 5))
+	var b := _sample_cell(image, cam, kitchen, Vector2i(4, 6))
 	var delta := absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
 	_expect(delta > 0.004, "checker: adjacent floor tiles differ (delta %.4f)" % delta)
-	var tinted := _sample_cell(image, cam, kitchen, Vector2i(6, 3))
+	var tinted := _sample_cell(image, cam, kitchen, Vector2i(9, 3))
 	_expect(tinted.r > tinted.g + 0.05 and tinted.r > tinted.b + 0.05,
 		"floor tint: painted cell renders red (%.2f %.2f %.2f)" % [tinted.r, tinted.g, tinted.b])
 
