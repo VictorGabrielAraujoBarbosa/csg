@@ -81,7 +81,16 @@ static func _add(id: String, name: String, file: String, is_base: bool, tag := &
 	def.preview_path = FOOD_PREVIEWS + file.get_basename() + ".png"
 	def.scale_mult = extra.get("scale", FOOD_SCALE)
 	def.is_base = is_base
-	def.tag = tag
+	# The 5th argument means different things: for a base ingredient it is WHERE
+	# it is fetched from (source_tag, e.g. "cold" for the fridge); for a tray it
+	# is the item's own kind (tag, e.g. "tray"). Routing both to `tag` silently
+	# left every ingredient on the default "storage" — a shelf could do the
+	# fridge's job.
+	if is_base:
+		if not tag.is_empty():
+			def.source_tag = tag
+	else:
+		def.tag = tag
 	if extra.has("extra"):
 		def.extra_scene = load(FOOD_DIR + str(extra["extra"])) as PackedScene
 	if extra.has("extra_scale"):

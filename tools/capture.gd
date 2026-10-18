@@ -965,6 +965,14 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			"storage split: the fridge is cold storage only (so a shelf is needed too)")
 		_expect(shelf_def != null and not shelf_def.icon_path.is_empty() and load(shelf_def.icon_path) != null,
 			"props: the stocked shelf has a real icon (no blank shop card)")
+		var take_patty := RecipeCatalog.source_for(&"patty_raw")
+		var take_bread := RecipeCatalog.source_for(&"bread")
+		var take_tray := RecipeCatalog.source_for(&"tray")
+		_expect(take_patty != null and take_patty.station_tag == &"cold",
+			"storage split: a raw patty is fetched from cold storage (source_tag, not tag)")
+		_expect(take_bread != null and take_bread.station_tag == &"storage",
+			"storage split: bread is fetched from dry storage")
+		_expect(take_tray == null, "storage split: a tray is not an ingredient (it keeps its own tag)")
 		_expect(FurnitureCatalog.shop_categories().size() >= 3, "shop: the pieces are grouped into categories")
 		var cutting := FurnitureCatalog.find(&"cutting_table")
 		_expect(cutting != null and cutting.shop, "props: the composed cutting table is a shop item")
