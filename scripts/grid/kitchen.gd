@@ -337,6 +337,8 @@ func remove_furniture(inst: FurnitureInstance, record := true, refund := 0) -> v
 	_erase_furniture_entry(entry)
 	if record:
 		var undo_entry := {"type": "furniture_remove", "entry": entry}
+		if inst.paid:
+			undo_entry["paid"] = true
 		if refund > 0:
 			undo_entry["refund"] = refund
 		push_undo(undo_entry)
@@ -855,7 +857,10 @@ func _undo_one(entry: Dictionary) -> bool:
 		"furniture_remove":
 			var def := FurnitureCatalog.find(entry.entry.get("id", &""))
 			if def != null:
-				_place_furniture_raw(def, entry.entry.cell, entry.entry.steps, entry.entry.get("tints", {}))
+				var restored := _place_furniture_raw(
+					def, entry.entry.cell, entry.entry.steps, entry.entry.get("tints", {}))
+				if restored != null and entry.get("paid", false):
+					restored.paid = true
 				data.furniture.append(entry.entry)
 				var refund := int(entry.get("refund", 0))
 				if refund > 0 and wallet != null:
