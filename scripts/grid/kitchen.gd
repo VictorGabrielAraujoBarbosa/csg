@@ -86,6 +86,15 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 ## Pulses per second of the hover marker (real time, never ticks).
 @export var hover_pulse_hz := 1.5
 
+@export_group("Near walls")
+## Walls between the camera and the room are switched off so the kitchen can be
+## read from outside. Purely visual: the data keeps every wall, and they come
+## back the moment the camera swings around to the other side.
+@export var hide_near_walls := true
+## How far off the centre line a wall must sit before it counts as "near"
+## (metres). A small positive value keeps the two side walls visible.
+@export var near_wall_bias := 0.0
+
 @export_group("Work tiles")
 ## Colour of the tiles a worker can stand on to operate a hovered piece.
 @export var work_marker_color := Color(0.25, 0.95, 0.5)
@@ -221,7 +230,8 @@ func _process(delta: float) -> void:
 	if not _spinners.is_empty():
 		_animate_spinners(delta)
 		animating = true
-	if not animating:
+	_update_near_walls()
+	if not animating and not hide_near_walls:
 		set_process(false)
 
 
@@ -2101,6 +2111,32 @@ func _refresh_walls_around(keys: Array[Vector3i]) -> void:
 	for v: Vector2i in vertex_set:
 		vertices.append(v)
 	_build_columns_for(vertices)
+
+
+## Camera-facing walls hide themselves (see [member hide_near_walls]).
+## Camera-facing walls hide themselves (see [member hide_near_walls]); called
+## from the shared _process, which keeps running while this is on.
+func _update_near_walls() -> void:
+	if not hide_near_walls or _wall_entries.is_empty() or not is_inside_tree():
+		return
+	var cam := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if cam == null:
+		return
+	var bounds := get_world_bounds()
+	if bounds.size == Vector2.ZERO:
+		return
+	var centre := bounds.get_center()
+	var to_cam := Vector2(cam.global_position.x - centre.x, cam.global_position.z - centre.y)
+	if to_cam.length_squared() < 0.001:
+		return
+	to_cam = to_cam.normalized()
+	for entry in _wall_entries:
+		var nodes: Array = entry.get("nodes", [])
+		for node: Node3D in nodes:
+			if not is_instance_valid(node):
+				continue
+			var offset := Vector2(node.global_position.x - centre.x, node.global_position.z - centre.y)
+			node.visible = offset.dot(to_cam) <= near_wall_bias
 
 
 func _region_for(keys: Array[Vector3i]) -> Rect2i:

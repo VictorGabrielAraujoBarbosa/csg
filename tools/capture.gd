@@ -808,8 +808,10 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(start_ids.has(&"stove") and start_ids.has(&"worker_post") and start_ids.has(&"counter")
 		and start_ids.has(&"sink") and start_ids.has(&"assembly_table"),
 		"designer: the start map ships a cooking line and staff")
-	_expect(not start_ids.has(&"shelf") and not start_ids.has(&"fridge"),
-		"designer: day 1 has no storage — the player has to buy it")
+	# The authored start map ships a complete working kitchen (storage included):
+	# the "buy your first storage" lesson only applies to a bare shell.
+	_expect(start_ids.has(&"shelf_stocked") and start_ids.has(&"fridge"),
+		"designer: the authored start kitchen ships both storages")
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
