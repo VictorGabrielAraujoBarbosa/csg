@@ -88,9 +88,11 @@ const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/table
 
 @export_group("Work tiles")
 ## Colour of the tiles a worker can stand on to operate a hovered piece.
-@export var work_marker_color := Color(0.55, 0.95, 0.75)
-## Alpha of the work-tile tiles.
-@export var work_marker_alpha := 0.45
+@export var work_marker_color := Color(0.25, 0.95, 0.5)
+## Alpha of the work-tile fill.
+@export var work_marker_alpha := 0.62
+## Thickness of the work-tile frame (metres); 0 draws a plain fill.
+@export var work_marker_frame := 0.07
 ## Size of one work-tile marker (metres).
 @export var work_marker_size := 0.86
 ## Height the work-tile markers float at (metres).
@@ -1204,13 +1206,21 @@ func set_work_markers(cells: Array, visible: bool) -> void:
 		for child in _work_root.get_children():
 			child.free()
 		var quad := _quad_mesh(work_marker_size)
+		var frame := _frame_mesh(work_marker_size, work_marker_frame) if work_marker_frame > 0.0 else null
 		var mat := _marker_material("work", work_marker_color, work_marker_alpha)
+		var frame_mat := _marker_material("work_frame", work_marker_color, minf(work_marker_alpha + 0.3, 1.0))
 		for c: Vector2i in cells:
 			var mi := MeshInstance3D.new()
 			mi.mesh = quad
 			mi.material_override = mat
 			mi.position = cell_to_world(c) + Vector3(0.0, work_marker_height, 0.0)
 			_work_root.add_child(mi)
+			if frame != null:
+				var fi := MeshInstance3D.new()
+				fi.mesh = frame
+				fi.material_override = frame_mat
+				fi.position = mi.position + Vector3(0.0, 0.004, 0.0)
+				_work_root.add_child(fi)
 	_work_root.visible = true
 
 
@@ -1334,6 +1344,15 @@ static func _quad_mesh(size: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_add_quad(st, Vector3.ZERO, Vector2(size, size))
+	st.index()
+	return st.commit()
+
+
+## A flat frame mesh (four bands) in the XZ plane, centred on the origin.
+static func _frame_mesh(size: float, thickness: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_add_frame(st, Vector2(size, size), thickness)
 	st.index()
 	return st.commit()
 

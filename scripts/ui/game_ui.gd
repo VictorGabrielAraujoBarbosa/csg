@@ -58,8 +58,8 @@ var _cards: Dictionary = {}
 var _horror_running := false
 ## Who owns the shop status line ("afford" / "hint"), so it can be cleared safely.
 var _status_owner := ""
-## Instance id of the piece whose work tiles are currently shown (0 = none).
-var _work_marker_key := 0
+## What the work-tile indicator is currently showing ("" = nothing).
+var _work_marker_key := ""
 var _players: Array[AudioStreamPlayer] = []
 var _player_index := 0
 var _streams: Dictionary = {}
@@ -605,17 +605,32 @@ func _update_work_markers() -> void:
 		return
 	if day.phase != DayController.Phase.BUILD:
 		return
+	# Three cases: dragging a placed piece, holding a new one from the shop, or
+	# hovering a placed piece. The first two preview the tiles at the spot the
+	# piece would land, so the indicator travels with it.
 	var inst: FurnitureInstance = null
+	var preview_def: FurnitureDef = null
+	var key := ""
 	if placer._grabbed != null:
 		inst = placer._grabbed
+		preview_def = inst.def
+		key = "grab:%d:%d,%d:%d" % [inst.get_instance_id(), placer._hover_cell.x,
+			placer._hover_cell.y, placer.rot_steps]
+	elif placer.has_selection and placer.current_def() != null and placer._has_hover:
+		preview_def = placer.current_def()
+		key = "ghost:%s:%d,%d:%d" % [preview_def.id, placer._hover_cell.x,
+			placer._hover_cell.y, placer.rot_steps]
 	elif placer._has_hover:
 		inst = kitchen.furniture_at(placer._hover_cell)
-	var key := inst.get_instance_id() if inst != null else 0
+		if inst != null:
+			key = "hover:%d" % inst.get_instance_id()
 	if key == _work_marker_key:
 		return
 	_work_marker_key = key
 	var cells: Array[Vector2i] = []
-	if inst != null:
+	if preview_def != null:
+		cells = service.preview_work_tiles(preview_def, placer._hover_cell, placer.rot_steps)
+	elif inst != null:
 		var station := _station_for(inst)
 		if station != null:
 			cells = station.work_tiles

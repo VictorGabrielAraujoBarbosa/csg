@@ -691,19 +691,39 @@ func rebuild_stations() -> void:
 ## The walkable tiles around a station, where a worker can stand to use it.
 ## Zoned stations already know their work cell; this is for the plain pieces.
 func _work_tiles_for(station: StationInstance) -> Array[Vector2i]:
+	var anchors: Array[Vector2i] = station.work_cells if not station.work_cells.is_empty() else station.cells
+	return _work_tiles_around(anchors, station.cells)
+
+
+## Where a worker could stand to operate this piece if it were placed here — the
+## tiles *next to* its work target, exactly like the pathfinder's stand cell.
+## Used by the UI while dragging a piece or previewing one from the shop.
+func preview_work_tiles(def: FurnitureDef, anchor: Vector2i, steps: int) -> Array[Vector2i]:
+	if def == null or def.tags.is_empty() or def.has_tag(&"worker"):
+		return []
+	var own := def.cells(anchor, steps)
+	var anchors: Array[Vector2i] = []
+	for zone in def.zones:
+		if str(zone.get("role", "")) == "work":
+			var offset: Vector2i = zone.get("offset", Vector2i.ZERO)
+			anchors.append(anchor + FurnitureDef.rotated_offset(offset, steps))
+	if anchors.is_empty():
+		anchors = own
+	return _work_tiles_around(anchors, own)
+
+
+## Walkable tiles beside [param anchors], excluding the piece's own cells. The
+## worker always stands NEXT to what it operates, never on it.
+func _work_tiles_around(anchors: Array[Vector2i], own: Array[Vector2i]) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	if kitchen == null or kitchen.data == null:
 		return out
-	if not station.work_cells.is_empty():
-		return station.work_cells.duplicate()
-	for cell: Vector2i in station.cells:
+	for cell: Vector2i in anchors:
 		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 			var n: Vector2i = cell + step
-			if out.has(n) or station.cells.has(n):
+			if out.has(n) or own.has(n):
 				continue
-			if not kitchen.is_walkable(n):
-				continue
-			if not kitchen.can_cross(cell, n):
+			if not kitchen.is_walkable(n) or not kitchen.can_cross(cell, n):
 				continue
 			out.append(n)
 	return out
