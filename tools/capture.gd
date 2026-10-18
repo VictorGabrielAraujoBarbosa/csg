@@ -5,10 +5,12 @@ extends Node
 ## (Used by the agent to check the visuals without a human at the keyboard.)
 ##
 ## The game boots into the main menu; the capture leaves it with
-## [code]start_game(true)[/code] right away (the --menu / --intro* / --thanks
-## flags stage a cinematic shot instead and skip every test flag).
+## [code]start_game(true)[/code] right away (the --menu / --intro* / --thanks /
+## --ending flags stage a cinematic shot instead and skip every test flag).
 
 const OUT_PATH := "/tmp/opencode/kitchen.png"
+## Where the staged ending (--ending) writes its one-shot-per-beat frames.
+const SHOT_DIR := "/tmp/opencode/ending"
 
 ## Horror bookkeeping for the self-test (lambdas cannot capture locals by
 ## reference, so the counters live on the node).
@@ -57,6 +59,8 @@ func _ready() -> void:
 			await _stage_cinematic(ui_root, scene, args)
 		else:
 			await _test_menu(ui_root, scene)
+			if "--selftest" in args:
+				await _test_ending(ui_root, scene)
 	var rig := scene.find_child("CameraRig", true, false) as CameraRig
 	# Optional view overrides, e.g.:
 	#   godot --path . res://tools/capture.tscn -- --pitch=88 --dist=26
@@ -214,9 +218,10 @@ func _ready() -> void:
 
 
 ## True when the command line asks for a staged cinematic shot (the menu, an
-## intro beat, the farewell card): those runs skip every test flag.
+## intro beat, the farewell card, the whole end of a run): those runs skip every
+## test flag.
 func _is_cinematic(args: PackedStringArray) -> bool:
-	for flag in ["--menu", "--intro", "--intro-door", "--intro-skip", "--intro-done", "--thanks"]:
+	for flag in ["--menu", "--intro", "--intro-door", "--intro-skip", "--intro-done", "--thanks", "--ending"]:
 		if flag in args:
 			return true
 	for arg in args:
@@ -267,9 +272,126 @@ func _test_menu(ui: Node, scene: Node) -> void:
 	_expect(service.orders.money == day.starting_money, "menu: the showreel's earnings are dropped")
 
 
+## The end of a run: a won day keeps its summary and the next-day flow; a lost
+## day plays the horror and both cards as one sequence and then drops the player
+## back at the main menu with the showreel running. A second ending call while
+## one is playing must bounce off the lock (structurally, not by luck). Runs as
+## part of the suite (--selftest): the horror chain is real time, so this is the
+## longest test in it.
+func _test_ending(ui: Node, scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
+	var cutscene := scene.find_child("Cutscene", true, false) as CutsceneDirector
+	if service == null or day == null or kitchen == null or cutscene == null:
+		return
+	var saved_speed := service.sim_speed
+	service.sim_speed = 0.0  # the test drives the ticks itself
+	# --- a won day: the summary keeps its continue button and leads to build ---
+	_reset_world(service)
+	day.day = 0
+	var reasons := day.can_start_day()
+	_expect(reasons.is_empty(), "ending: the demo kitchen passes the day-1 gate")
+	day.start_day()
+	var ticks := 0
+	while day.phase == DayController.Phase.DAY and ticks < 30000:
+		service.tick_once()
+		ticks += 1
+	_expect(day.phase == DayController.Phase.SUMMARY and not day.lost,
+		"ending: a won day reaches the summary (served %d/%d in %d ticks)" % [
+			day.served, day.plan.arrivals.size(), ticks])
+	_expect(bool(ui._summary.visible), "ending: a won day keeps the summary card up")
+	var next := ui._summary_button as Button
+	_expect(next != null and next.visible, "ending: a won day keeps its continue button")
+	day.finish_day()
+	_expect(day.phase == DayController.Phase.BUILD, "ending: the won-day summary returns to build")
+	_expect(not bool(ui._summary.visible), "ending: the summary clears on the way back to build")
+	# --- a lost day: the horror chain owns the ending, then the menu ---
+	_expect(day.start_day(), "ending: the next day starts")
+	for i in service.orders.max_pending + 2:
+		service.request_order()
+	service.tick_once()
+	_expect(day.lost and day.horror, "ending: the queue loses the day and the mob breaks in")
+	_expect(bool(ui._horror_running) and bool(ui._ending_busy),
+		"ending: the horror chain locks the ending")
+	_expect(not bool(ui._summary.visible), "ending: no summary card behind the horror")
+	# A second caller cannot start a card on top of the ending.
+	var gen := int(cutscene._title_generation)
+	ui.play_ending_card()
+	ui._on_mob_started([])
+	await get_tree().process_frame
+	_expect(int(cutscene._title_generation) == gen,
+		"ending: a second card is ignored while the ending plays")
+	# Let the chain run: feed it ticks and watch which cards reach the screen.
+	var seen: Array[String] = []
+	var deadline := Time.get_ticks_msec() + 60000
+	while bool(ui.is_started()) and Time.get_ticks_msec() < deadline:
+		service.tick_once()
+		if cutscene._title_root != null and cutscene._title_root.visible \
+				and cutscene._title_label != null:
+			var text := cutscene._title_label.text
+			if not text.is_empty() and (seen.is_empty() or seen[seen.size() - 1] != text):
+				seen.append(text)
+		await get_tree().process_frame
+	_expect(not bool(ui.is_started()), "ending: the lost run ends back at the main menu")
+	_expect(seen.has("DAY LOST"), "ending: the DAY LOST card played")
+	_expect(seen.has(str(ui.ending_title)), "ending: the farewell card played")
+	_expect(seen.find("DAY LOST") < seen.find(str(ui.ending_title)),
+		"ending: the cards are serialised (DAY LOST before the farewell)")
+	_expect(bool(ui._menu.visible), "ending: the menu card is up again")
+	_expect(not bool(ui._summary.visible), "ending: no summary / Next day is left on screen")
+	_expect(not bool(ui._horror_running) and not bool(ui._ending_busy),
+		"ending: the ending chain released the director")
+	_expect(day.phase == DayController.Phase.BUILD and day.day == 0,
+		"ending: the day counter is back at its starting value")
+	_expect(service.orders.money == day.starting_money, "ending: the purse is back to its starting value")
+	_expect(kitchen.broken_edges().is_empty(), "ending: the windows are repaired for the showreel")
+	# The showreel's own venue posts are staffed again (the menu map may also
+	# carry the lent mats, exactly as at boot).
+	var posts_recorded := 0
+	var posts_staffed := 0
+	for entry: Dictionary in kitchen.data.furniture:
+		var def := FurnitureCatalog.find(entry.get("id", &""))
+		if def == null or not def.has_tag(&"worker"):
+			continue
+		posts_recorded += 1
+		if service._worker_at(entry.get("cell", Vector2i.ZERO)) != null:
+			posts_staffed += 1
+	_expect(posts_recorded > 0 and posts_staffed == posts_recorded,
+		"ending: every post of the showreel's map is staffed again (%d/%d, %d workers)" % [
+			posts_staffed, posts_recorded, service.workers.size()])
+	# The showreel is live again: the attract loop can ask for a real order, and
+	# the reset kitchen can actually plan it.
+	var before := service.orders.active_orders().size()
+	ui._attract_step()
+	var pending := service.orders.active_orders()
+	_expect(pending.size() == before + 1,
+		"ending: the attract loop takes orders again (%d -> %d)" % [before, pending.size()])
+	_expect(not pending.is_empty() and pending[pending.size() - 1].state != Order.State.UNPLANNABLE,
+		"ending: the showreel's order is plannable (the reset kitchen can cook)")
+	# Leave the suite where _test_menu left it: the game started, on the demo map
+	# the capture pins (see _ready). Start must also still work from the menu.
+	ui.kitchen.layout = null
+	ui.kitchen.layout_file = "res://resources/layouts/demo_kitchen.txt"
+	ui.start_game(true)
+	_expect(bool(ui.is_started()) and not bool(ui._menu.visible),
+		"ending: Start leaves the menu again for a fresh run")
+	# Hand the rest of the suite the state _test_menu left it in: the frame back
+	# to fullscreen and the rig at the build framing (the menu reset left it at
+	# the menu distance and the rig's smoothing is slow).
+	await _wait_seconds(0.6)
+	var rig := ui.camera_rig as CameraRig
+	if rig != null:
+		rig.distance = float(ui.BUILD_DISTANCE)
+		rig._target_distance = rig.distance
+		rig._distance = rig.distance
+	service.sim_speed = saved_speed
+
+
 ## Stages one cinematic screenshot: the menu over a busy kitchen (--menu), an
-## intro beat (--intro / --intro-door / --intro-card=N) or the farewell card
-## (--thanks). Every test flag is skipped while one of these is set.
+## intro beat (--intro / --intro-door / --intro-card=N), the farewell card on its
+## own (--thanks) or the whole end of a lost run (--ending). Every test flag is
+## skipped while one of these is set.
 func _stage_cinematic(ui: Node, scene: Node, args: PackedStringArray) -> void:
 	var service := scene.find_child("Service", true, false) as Service
 	if "--menu" in args:
@@ -293,6 +415,9 @@ func _stage_cinematic(ui: Node, scene: Node, args: PackedStringArray) -> void:
 		ui._hide_gameplay_ui()
 		ui.play_ending_card()
 		await _wait_seconds(0.7)
+		return
+	if "--ending" in args:
+		await _stage_ending(ui, scene)
 		return
 	# The intro: start the game for real (no skip) and hold the requested beat.
 	ui.start_game(false)
@@ -343,6 +468,78 @@ func _stage_cinematic(ui: Node, scene: Node, args: PackedStringArray) -> void:
 
 func _wait_seconds(seconds: float) -> void:
 	await get_tree().create_timer(maxf(seconds, 0.0)).timeout
+
+
+## Stages the real end of a lost run (--ending): the horror, the DAY LOST card,
+## the farewell card and the menu with the showreel running again — one shot per
+## beat, so the serialised sequence can be looked at.
+func _stage_ending(ui: Node, scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	var cutscene := scene.find_child("Cutscene", true, false) as CutsceneDirector
+	var sub := scene.get_parent() as SubViewport
+	if service == null or day == null or cutscene == null or sub == null:
+		return
+	ui.start_game(true)
+	ui._hide_gameplay_ui()
+	service.sim_speed = 0.0  # the staging drives the ticks itself
+	DirAccess.make_dir_recursive_absolute(SHOT_DIR)
+	_reset_world(service)
+	day.day = 0
+	day.start_day()
+	for i in service.orders.max_pending + 2:
+		service.request_order()
+	service.tick_once()
+	_expect(day.lost and day.horror, "ending shot: the queue loses the day and the mob breaks in")
+	await _wait_for_card(service, cutscene, "DAY LOST")
+	await _shoot(sub, SHOT_DIR + "/day_lost.png")
+	await _wait_for_card(service, cutscene, str(ui.ending_title))
+	await _shoot(sub, SHOT_DIR + "/thanks.png")
+	var deadline := Time.get_ticks_msec() + 60000
+	while bool(ui.is_started()) and Time.get_ticks_msec() < deadline:
+		service.tick_once()
+		await get_tree().process_frame
+	# The menu is back: let the frame tween back to fullscreen and the showreel
+	# get to work, like the --menu shot.
+	await _wait_seconds(0.9)
+	ui._attract_step()
+	ui._attract_step()
+	service.run_ticks(170)
+	ui._attract_step()
+	service.run_ticks(60)
+	ui.set_process(false)  # freeze the showreel for the shot
+	print("[ending] menu back: %d pending, %d completed, %d workers busy" % [
+		service.orders.active_orders().size(), service.orders.completed_count,
+		service.workers_busy()])
+	await _shoot(sub, SHOT_DIR + "/menu_back.png")
+
+
+## Waits until [param text] is the card on screen (the ending chain is real
+## time), ticking the simulation so the horror can get to it. True on success.
+func _wait_for_card(service: Service, cutscene: CutsceneDirector, text: String,
+		timeout := 60.0) -> bool:
+	var deadline := Time.get_ticks_msec() + int(timeout * 1000.0)
+	while Time.get_ticks_msec() < deadline:
+		service.tick_once()
+		if cutscene._title_root != null and cutscene._title_root.visible \
+				and cutscene._title_label != null and cutscene._title_label.text == text \
+				and cutscene._title_root.modulate.a > 0.9:
+			return true
+		await get_tree().process_frame
+	print("[ending] the card '%s' never showed up" % text)
+	return false
+
+
+## Saves the world viewport (UI and cutscene overlays included: they live inside
+## it) to [param path]. The staged ending shoots one frame per beat instead of
+## the single frame at the end of _ready.
+func _shoot(sub: SubViewport, path: String) -> void:
+	await RenderingServer.frame_post_draw
+	var image := sub.get_texture().get_image()
+	if image == null:
+		print("screenshot %s: no image" % path)
+		return
+	print("screenshot %s (err=%d)" % [path, image.save_png(path)])
 
 
 ## Samples rendered pixels to catch things that "exist" but are invisible

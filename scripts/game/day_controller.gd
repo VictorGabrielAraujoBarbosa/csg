@@ -98,6 +98,9 @@ var horror := false
 var run_over := false
 
 var _horror_deadline := 0
+## The authored order limit, remembered so [method reset_run] can undo the
+## squeeze a long run has applied to it.
+var _base_order_time_limit := 0
 
 
 func _ready() -> void:
@@ -105,6 +108,7 @@ func _ready() -> void:
 		service = get_node_or_null("../Service") as Service
 	if kitchen == null:
 		kitchen = get_node_or_null("../Kitchen") as Kitchen
+	_base_order_time_limit = order_time_limit_ticks
 	if service != null:
 		service.orders.money = starting_money
 		# The controller owns the queue rules, so the manager's own timer is off.
@@ -232,6 +236,35 @@ func finish_day() -> void:
 			kitchen.clear_broken_edges()
 		phase = Phase.BUILD
 		phase_changed.emit(phase)
+
+
+## Puts the run back to the state the game boots in. A lost day is the end of
+## the run (the UI plays its cards and returns to the main menu), so nothing of
+## it may leak into the next one: day zero, the purse refilled, the windows
+## repaired, the staff back on shift and no leftover summary. A won day never
+## comes through here — its summary keeps the "Next day" flow.
+func reset_run() -> void:
+	day = 0
+	phase = Phase.BUILD
+	plan = null
+	next_arrival = 0
+	day_start_tick = 0
+	served = 0
+	lost = false
+	loss_reason = ""
+	horror = false
+	run_over = false
+	summary = {}
+	order_time_limit_ticks = _base_order_time_limit
+	if service != null:
+		service.stop_mob()
+		service.clear_eaten_posts()
+		service.watchdog_enabled = false
+		service.reset_after_day()
+		service.orders.money = starting_money
+	if kitchen != null:
+		kitchen.clear_broken_edges()
+	phase_changed.emit(phase)
 
 
 func _make_plan(day_number: int) -> DayPlan:

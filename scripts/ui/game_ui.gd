@@ -11,6 +11,13 @@ extends CanvasLayer
 ## are hidden and an attract loop keeps the chibis cooking with real orders
 ## ([method _attract_step]). [method start_game] leaves the menu, restores the
 ## phase UI and plays the [IntroSequence].
+##
+## A lost day is the end of the run: the horror chain ([method _on_mob_started])
+## plays the chase, the DAY LOST card and the farewell card as one coroutine —
+## [member _ending_busy] makes a second card structurally impossible — and then
+## [method reset_to_menu] puts the player back at the main menu with the
+## showreel running. A won day is untouched: its summary keeps the "Next day"
+## button and the build phase.
 
 const CLICK_SOUND := "res://assets/kenney_interface-sounds/Audio/click_002.ogg"
 const CARD_SOUND := "res://assets/kenney_interface-sounds/Audio/drop_002.ogg"
@@ -98,11 +105,23 @@ var _tab_group: ButtonGroup
 var _shop_category: StringName = &""
 var _summary: PanelContainer
 var _summary_label: Label
+## The summary's continue button ("Next day" / "Start over"). Kept as a member:
+## it lives inside the summary's column, so a name lookup from the panel missed it.
+var _summary_button: Button
 var _menu: PanelContainer
 var _cards: Dictionary = {}
 ## Order id -> the countdown label on its card.
 var _card_timers: Dictionary = {}
 var _horror_running := false
+## True while an ending sequence owns the cutscene director: the horror chase,
+## the DAY LOST card, the farewell card and the return to the menu are one
+## chain, and every other caller is turned away (see [method _on_mob_started]).
+var _ending_busy := false
+## The lost day's summary, handed over by [method _on_day_finished] while the
+## horror chain is still on screen.
+var _horror_summary: Dictionary = {}
+## Set with [member _horror_summary]: the horror chain can play its cards.
+var _horror_summary_ready := false
 ## True once Start has been pressed; before that the menu owns the screen and
 ## the attract loop runs behind it.
 var _started := false
@@ -511,6 +530,7 @@ func _build_summary() -> void:
 	next.custom_minimum_size = Vector2(200, 48)
 	next.pressed.connect(_on_next_day_pressed)
 	column.add_child(next)
+	_summary_button = next
 
 
 ## The main menu: a title card over the live kitchen, shown until Start is
@@ -671,7 +691,8 @@ func _stop_attract() -> void:
 ## storage and no sink (that is the day-1 lesson), so without this the showreel
 ## behind the menu would have nothing to do. Lent pieces are never paid for and
 ## never written into the map (record is false); [method start_game] takes them
-## back.
+## back. Calling it twice on the same map lends nothing twice — worker posts are
+## not stations, so the tag check above cannot see them.
 func _ensure_attract_stock() -> void:
 	if kitchen == null or service == null or kitchen.data == null:
 		return
@@ -680,11 +701,19 @@ func _ensure_attract_stock() -> void:
 	service.rebuild_stations()
 	for id: StringName in attract_stock:
 		var def := FurnitureCatalog.find(id)
-		if def == null or _def_tag_present(def):
+		if def == null or _def_tag_present(def) or _attract_lent(id):
 			continue
 		_place_attract_piece(def)
 	if not _attract_pieces.is_empty():
 		service.rebuild_stations()
+
+
+## True when the showreel already lent a piece of this kind.
+func _attract_lent(id: StringName) -> bool:
+	for inst in _attract_pieces:
+		if is_instance_valid(inst) and inst.def != null and inst.def.id == id:
+			return true
+	return false
 
 
 ## True when the kitchen already has a station carrying any of the piece's tags
@@ -867,7 +896,9 @@ func _on_phase(phase: int) -> void:
 				placer.set_enabled(false)
 			_play(DAY_SOUND)
 		DayController.Phase.SUMMARY:
-			_summary.visible = true
+			# A lost day's ending owns the screen: its cards follow the horror,
+			# and the summary card would offer a continue button mid-cutscene.
+			_summary.visible = not _is_run_ending()
 			_play(DONE_SOUND)
 	if not _started:
 		_apply_menu_gate()
@@ -1088,25 +1119,47 @@ func _on_day_finished(summary: Dictionary) -> void:
 		int(summary.get("served", 0)),
 		int(summary.get("money", 0)),
 		tail]
-	var next_button := _summary.get_node_or_null("NextDay") as Button
+	var next_button := _summary_button
 	if next_button != null:
 		next_button.text = "Start over" if bool(summary.get("run_over", false)) else "Next day"
-	if bool(summary.get("lost", false)) and _horror_running:
-		_finish_horror_cutscene(summary)
-	else:
+	if not _is_run_ending():
+		# A won day (or the restaurant closing for good): the summary card is the
+		# screen, exactly as before.
 		_summary.visible = true
+	elif _horror_running:
+		# The horror chain is still on screen (the chase, the pan back): hand it
+		# the numbers, and it plays the cards itself once the mob is done.
+		_horror_summary = summary
+		_horror_summary_ready = true
+	else:
+		# A lost day with no mob to wait for (no windows, or horror off): the
+		# same ending, minus the chase.
+		_play_ending(summary)
+
+
+## True while the day that just finished ends the run: a lost day plays the
+## ending cards and then returns to the main menu, so nothing may offer a
+## continue button on top of that (see [method _run_ending]). A won day — and
+## the restaurant-closed summary — keep the old next-day flow.
+func _is_run_ending() -> bool:
+	return day != null and day.lost and not day.run_over
 
 
 # ---------------------------------------------------------------------------
-# The horror cutscene (customers break in and eat the staff)
+# The horror cutscene and the end of the run
 # ---------------------------------------------------------------------------
 
-## The mob is inside: letterbox in, slow motion, watch it happen. The title card
-## and the summary follow when the day closes (see _on_day_finished).
+## The mob is inside: letterbox in, slow motion, watch it happen. The chase, the
+## DAY LOST card, the farewell card and the return to the menu are one
+## coroutine, locked by [member _ending_busy] for its whole length, so no second
+## card can start on top of this one.
 func _on_mob_started(edges: Array) -> void:
-	if cutscene == null or _horror_running:
+	if cutscene == null or _horror_running or _ending_busy:
 		return
 	_horror_running = true
+	_ending_busy = true
+	_horror_summary = {}
+	_horror_summary_ready = false
 	_catalog_panel.visible = false
 	_order_panel.visible = false
 	_start_button.visible = false
@@ -1127,6 +1180,8 @@ func _on_mob_started(edges: Array) -> void:
 			and not cutscene.skip_requested():
 		await get_tree().create_timer(0.15).timeout
 	if cutscene == null:
+		_horror_running = false
+		_ending_busy = false
 		return
 	# The mob may have finished off the staff: always pan back to the room so the
 	# player sees the aftermath instead of a wall.
@@ -1137,10 +1192,34 @@ func _on_mob_started(edges: Array) -> void:
 		if bounds.size != Vector2.ZERO:
 			look_at = Vector2i(roundi(bounds.get_center().x), roundi(bounds.get_center().y))
 	await cutscene.focus_cell(look_at, 15.0, 1.0)
+	# The day closes behind the horror (the controller emits the summary once the
+	# kitchen is empty): the cards can only report it once it is in.
+	await _await_horror_summary()
+	await _run_ending(_horror_summary)
+	_horror_running = false
+	_ending_busy = false
 
 
-func _finish_horror_cutscene(summary: Dictionary) -> void:
-	var eaten := int(summary.get("eaten", 0))
+## A lost day whose mob never made it inside (no windows to break, horror off):
+## the same ending cards, on their own. Locked like the horror chain.
+func _play_ending(summary: Dictionary) -> void:
+	if _ending_busy:
+		return
+	_ending_busy = true
+	if cutscene != null:
+		cutscene.begin()
+		await _run_ending(summary)
+	else:
+		# No director to play the cards (a stripped run): the run still ends at
+		# the menu, but only after the day controller has closed the day.
+		await get_tree().process_frame
+		reset_to_menu()
+	_ending_busy = false
+
+
+## The cards of a lost run, one after the other, then the main menu. Only ever
+## entered from the ending chain, which owns [member _ending_busy].
+func _run_ending(summary: Dictionary) -> void:
 	var subtitle := str(summary.get("reason", ""))
 	if subtitle.is_empty():
 		subtitle = "the kitchen is quiet now"
@@ -1152,21 +1231,67 @@ func _finish_horror_cutscene(summary: Dictionary) -> void:
 		await cutscene.title(ending_title, ending_subtitle, ending_hold)
 	cutscene.set_slow_motion(service, 1.0)
 	await cutscene.finish()
-	_horror_running = false
-	_summary.visible = true
 	if service != null:
 		service.sim_speed = 1.0
+	# finish() glides the camera back to the pre-horror framing over its own
+	# beat: let it land before the menu applies its own, or the restore wins.
+	await cutscene.wait(cutscene.letterbox_duration)
+	# The farewell was the last screen: the run is over, back to the menu.
+	reset_to_menu()
+
+
+## Waits for the day controller's summary (it follows the mob once the kitchen is
+## empty). The timeout is a safety valve: a lost day must never strand the player
+## on a cutscene, so the cards play anyway (only the subtitle is generic then).
+func _await_horror_summary(timeout := 30.0) -> void:
+	var spent := 0.0
+	while not _horror_summary_ready and spent < timeout:
+		await get_tree().create_timer(0.05).timeout
+		spent += 0.05
+		if cutscene != null and cutscene.skip_requested():
+			# Skipping the wait sends the mob away; the day then closes on the
+			# next tick, exactly like the attack's own timeout.
+			if service != null:
+				service.stop_mob()
+
+
+## Back to exactly the state the game boots in: the menu card over the live
+## kitchen, the menu map loaded with the pieces the showreel is lent, the day
+## counter and the purse at their starting values and the attract loop ready to
+## ask for its first order. A lost run ends here; a won day never does (its
+## summary keeps the next-day flow).
+func reset_to_menu() -> void:
+	_started = false
+	_horror_running = false
+	_ending_busy = false
+	_summary.visible = false
+	_clear_cards()
+	# The menu shows off the venue's menu map — the very one a fresh boot loads.
+	if kitchen != null and FileAccess.file_exists(MENU_LAYOUT):
+		kitchen.load_layout(MENU_LAYOUT)
+	# The run is over: day zero, the purse refilled, the windows repaired, the
+	# staff back on shift, no orders or loose items left, and the trays seeded at
+	# the new map's intake.
+	if day != null:
+		day.reset_run()
+	# The pieces the showreel needs to cook (start_game takes them back again).
+	_ensure_attract_stock()
+	_attract_clock = 0.0
+	_attract_dish_index = -1
+	_apply_menu_gate()
 
 
 ## Dev / capture helper: plays the farewell card on its own (the capture's
-## --thanks screenshot), outside the horror flow.
+## --thanks screenshot). Ignored while an ending sequence is playing.
 func play_ending_card() -> void:
-	if cutscene == null:
+	if cutscene == null or _ending_busy:
 		return
+	_ending_busy = true
 	_ending_shown = true
 	cutscene.begin()
 	await cutscene.title(ending_title, ending_subtitle, ending_hold)
 	cutscene.finish()
+	_ending_busy = false
 
 
 func _refresh_money() -> void:

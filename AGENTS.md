@@ -52,6 +52,12 @@ Landed so far:
 **Flow**: main menu (over a live kitchen running a real-order attract loop) → Start → five-card intro
 cutscene (deadpan premise, one growl + light dip as the only horror hint) → days 1-3 scripted → the
 squeeze → the horror → "THANK YOU FOR PLAYING / you have satisfied the customers" (the title's pun).
+**A lost run ends**: the mob chase, the DAY LOST card, the farewell card and the return to the main
+menu are ONE coroutine chain guarded by `_ending_busy` (a second caller can never reach
+`cutscene.title()`), so the cards cannot overlap. There is no continue-after-being-eaten: a lost day
+never reaches the summary (`_on_day_finished` hands it to the chain), `GameUI.reset_to_menu()` +
+`DayController.reset_run()` restore the pre-Start state, and the showreel starts again. Won days keep
+summary → "Next day" → BUILD. Capture flag `--ending` stages a whole run's end, one frame per beat.
 `game_ui.start_game(skip_intro)` is the entry point; the capture calls it with `true` so headless runs
 and screenshots skip the menu and intro. The menu *lends* the venue storage, a fridge and a sink for
 the showreel (`attract_stock`) and takes them back at Start — the shipped kitchen deliberately cannot
