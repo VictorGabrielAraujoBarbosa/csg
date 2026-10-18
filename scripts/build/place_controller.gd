@@ -15,6 +15,8 @@ const GRAB_LIFT := 0.22
 @export var kitchen: Kitchen
 @export var camera: Camera3D
 @export var service: Service
+## Level-designer mode: placing and removing furniture costs nothing.
+@export var free_placement := false
 @export var catalog: Array[FurnitureDef] = []
 ## When false, the placer ignores input and hides its feedback (map edit mode).
 var enabled := true
@@ -74,6 +76,15 @@ func current_def() -> FurnitureDef:
 	if catalog.is_empty():
 		return null
 	return catalog[posmod(index, catalog.size())]
+
+
+## Human-readable summary of the current selection (designer status line).
+func selection_label() -> String:
+	var def := current_def()
+	if def == null:
+		return "no selection"
+	return "%s  %d x %d m  $%d" % [
+		def.display_name, def.resolved_footprint().x, def.resolved_footprint().y, def.cost]
 
 
 ## Selects a catalog entry by id (used by the build catalog UI).
@@ -227,11 +238,11 @@ func _try_place() -> void:
 	var def := current_def()
 	if def == null:
 		return
-	if service != null and not service.orders.try_spend(def.cost):
+	if service != null and not free_placement and not service.orders.try_spend(def.cost):
 		return
 	if kitchen.place_furniture(def, _hover_cell, rot_steps) != null:
 		_last_cells.clear()
-	elif service != null:
+	elif service != null and not free_placement:
 		# Placing failed for a non-money reason: give the money back.
 		service.orders.add_money(def.cost)
 

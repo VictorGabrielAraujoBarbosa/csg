@@ -37,7 +37,7 @@ static func find_path(kitchen: Kitchen, from: Vector2i, to: Vector2i) -> Array[V
 			var next: Vector2i = current + step
 			if not kitchen.is_walkable(next):
 				continue
-			if not kitchen.data.can_cross(current, next):
+			if not kitchen.can_cross(current, next):
 				continue
 			var tentative: int = g[current] + 1
 			if tentative < g.get(next, 1 << 30):

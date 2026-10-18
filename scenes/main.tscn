@@ -10,6 +10,8 @@
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="8_hud"]
 [ext_resource type="Script" path="res://scripts/game/day_controller.gd" id="9_day"]
 [ext_resource type="Script" path="res://scripts/ui/game_ui.gd" id="10_ui"]
+[ext_resource type="Script" path="res://scripts/ui/level_designer.gd" id="11_designer"]
+[ext_resource type="Script" path="res://scripts/ui/cutscene_director.gd" id="12_cutscene"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.22, 0.23, 0.26, 1)
@@ -44,7 +46,7 @@ material_override = SubResource("StandardMaterial3D_ground")
 
 [node name="Kitchen" type="Node3D" parent="World"]
 script = ExtResource("2_kitchen")
-layout_file = "res://resources/layouts/demo_kitchen.txt"
+layout_file = "res://resources/layouts/start_kitchen.txt"
 
 [node name="CameraRig" type="Node3D" parent="World"]
 script = ExtResource("3_rig")
@@ -80,9 +82,21 @@ service = NodePath("../World/Service")
 kitchen = NodePath("../World/Kitchen")
 camera_rig = NodePath("../World/CameraRig")
 placer = NodePath("../World/PlaceController")
+paint = NodePath("../World/MapPaintController")
 world = NodePath("../World")
 
+[node name="Cutscene" type="Node" parent="UI"]
+script = ExtResource("12_cutscene")
+
+[node name="LevelDesigner" type="Control" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("11_designer")
+
 [node name="DevHud" type="Control" parent="UI"]
+visible = false
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0

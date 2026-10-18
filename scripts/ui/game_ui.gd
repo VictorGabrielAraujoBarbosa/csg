@@ -16,12 +16,17 @@ const BUILD_DISTANCE := 15.0
 const DAY_DISTANCE := 16.0
 const DAY_ANCHOR_RIGHT := 0.66
 const CORNER_RADIUS := 26.0
+## Time runs at a third speed while the customers are inside.
+const HORROR_SLOW_MOTION := 0.35
+const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_000.ogg"
 
 @export var day: DayController
 @export var service: Service
 @export var kitchen: Kitchen
 @export var camera_rig: CameraRig
 @export var placer: PlaceController
+@export var paint: MapPaintController
+@export var cutscene: CutsceneDirector
 @export var world: SubViewport
 
 var _backdrop: ColorRect
@@ -35,9 +40,18 @@ var _order_panel: PanelContainer
 var _order_list: VBoxContainer
 var _catalog_panel: PanelContainer
 var _catalog_grid: GridContainer
+var _catalog_status: Label
+var _catalog_detail: PanelContainer
+var _detail_icon: TextureRect
+var _detail_name: Label
+var _detail_price: Label
+var _detail_info: Label
+var _tab_group: ButtonGroup
+var _shop_category: StringName = &""
 var _summary: PanelContainer
 var _summary_label: Label
 var _cards: Dictionary = {}
+var _horror_running := false
 var _players: Array[AudioStreamPlayer] = []
 var _player_index := 0
 var _streams: Dictionary = {}
@@ -54,6 +68,10 @@ func _ready() -> void:
 		camera_rig = get_node_or_null("../World/CameraRig") as CameraRig
 	if placer == null:
 		placer = get_node_or_null("../World/PlaceController") as PlaceController
+	if paint == null:
+		paint = get_node_or_null("../World/MapPaintController") as MapPaintController
+	if cutscene == null:
+		cutscene = get_node_or_null("Cutscene") as CutsceneDirector
 	if world == null:
 		world = get_node_or_null("../World") as SubViewport
 
@@ -75,6 +93,14 @@ func _ready() -> void:
 		service.orders.changed.connect(_refresh_money)
 		service.orders.order_added.connect(_on_order_added)
 		service.orders.order_completed.connect(_on_order_completed)
+		service.mob_started.connect(_on_mob_started)
+	if kitchen != null:
+		kitchen.layout_edited.connect(_refresh_money)
+		kitchen.layout_rebuilt.connect(_refresh_money)
+	if placer != null:
+		placer.selection_changed.connect(_on_placer_selection)
+	if paint != null:
+		paint.hint.connect(_on_hint)
 	_refresh_money()
 	_on_phase(day.phase if day != null else DayController.Phase.BUILD)
 	# Keep the developer overlay (hint / job counts / warnings) on top of the
@@ -200,39 +226,134 @@ func _build_order_panel() -> void:
 
 func _build_catalog() -> void:
 	_catalog_panel = PanelContainer.new()
-	_catalog_panel.name = "Catalog"
+	_catalog_panel.name = "Shop"
 	_catalog_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_catalog_panel.anchor_right = 0.62
+	_catalog_panel.anchor_right = 0.72
 	_catalog_panel.offset_left = 12.0
-	_catalog_panel.offset_top = -232.0
+	_catalog_panel.offset_top = -306.0
 	_catalog_panel.offset_right = -12.0
 	_catalog_panel.offset_bottom = -12.0
 	_catalog_panel.add_theme_stylebox_override("panel", _panel_style())
 	add_child(_catalog_panel)
 	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
 	_catalog_panel.add_child(column)
+	# Header: title + category tabs.
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	column.add_child(header)
 	var title := Label.new()
-	title.text = "CATALOG  (click to place)"
-	title.add_theme_font_size_override("font_size", 15)
-	column.add_child(title)
+	title.text = "SHOP"
+	title.add_theme_font_size_override("font_size", 16)
+	header.add_child(title)
+	_tab_group = ButtonGroup.new()
+	var categories: Array[StringName] = [&""]
+	for category in FurnitureCatalog.shop_categories():
+		categories.append(category)
+	for category in categories:
+		var tab := Button.new()
+		tab.text = "All" if category == &"" else FurnitureCatalog.category_label(category)
+		tab.toggle_mode = true
+		tab.button_group = _tab_group
+		tab.button_pressed = category == &""
+		tab.custom_minimum_size = Vector2(84, 26)
+		tab.add_theme_font_size_override("font_size", 13)
+		tab.pressed.connect(_on_tab_pressed.bind(category))
+		header.add_child(tab)
+	_catalog_status = Label.new()
+	_catalog_status.add_theme_font_size_override("font_size", 13)
+	_catalog_status.add_theme_color_override("font_color", Color(1.0, 0.78, 0.45))
+	_catalog_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_catalog_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	header.add_child(_catalog_status)
+	# Body: card grid + detail panel.
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 10)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(body)
 	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	column.add_child(scroll)
+	body.add_child(scroll)
 	_catalog_grid = GridContainer.new()
-	_catalog_grid.columns = 5
+	_catalog_grid.columns = 4
 	_catalog_grid.add_theme_constant_override("h_separation", 8)
 	_catalog_grid.add_theme_constant_override("v_separation", 8)
 	scroll.add_child(_catalog_grid)
-	for def in FurnitureCatalog.all():
+	_catalog_detail = PanelContainer.new()
+	_catalog_detail.custom_minimum_size = Vector2(196, 0)
+	_catalog_detail.add_theme_stylebox_override("panel", _card_style())
+	body.add_child(_catalog_detail)
+	var detail_column := VBoxContainer.new()
+	detail_column.add_theme_constant_override("separation", 4)
+	_catalog_detail.add_child(detail_column)
+	var detail_row := HBoxContainer.new()
+	detail_row.add_theme_constant_override("separation", 8)
+	detail_column.add_child(detail_row)
+	_detail_icon = TextureRect.new()
+	_detail_icon.custom_minimum_size = Vector2(44, 44)
+	_detail_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	detail_row.add_child(_detail_icon)
+	var detail_text := VBoxContainer.new()
+	detail_row.add_child(detail_text)
+	_detail_name = Label.new()
+	_detail_name.add_theme_font_size_override("font_size", 15)
+	detail_text.add_child(_detail_name)
+	_detail_price = Label.new()
+	_detail_price.add_theme_font_size_override("font_size", 14)
+	_detail_price.add_theme_color_override("font_color", Color(0.72, 0.92, 0.6))
+	detail_text.add_child(_detail_price)
+	_detail_info = Label.new()
+	_detail_info.add_theme_font_size_override("font_size", 12)
+	_detail_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_info.add_theme_color_override("font_color", Color(0.72, 0.76, 0.85))
+	detail_column.add_child(_detail_info)
+	_rebuild_shop(&"")
+
+
+## Rebuilds the card grid for a category ("" = everything on sale).
+func _rebuild_shop(category: StringName) -> void:
+	_shop_category = category
+	for child in _catalog_grid.get_children():
+		child.queue_free()
+	for def in FurnitureCatalog.shop_items():
+		if category != &"" and def.category != category:
+			continue
 		var button := Button.new()
 		button.text = "%s\n$%d" % [def.display_name, def.cost]
-		button.custom_minimum_size = Vector2(136, 58)
+		button.custom_minimum_size = Vector2(150, 54)
 		button.tooltip_text = ", ".join(def.tags)
 		button.icon = _icon(def)
-		button.add_theme_constant_override("icon_max_width", 40)
-		button.pressed.connect(_on_catalog_pressed.bind(def.id))
+		button.add_theme_constant_override("icon_max_width", 34)
+		button.toggle_mode = true
 		button.set_meta("cost", def.cost)
+		button.set_meta("id", def.id)
+		button.pressed.connect(_on_catalog_pressed.bind(def.id))
 		_catalog_grid.add_child(button)
+	_refresh_money()
+	_update_detail()
+
+
+func _on_tab_pressed(category: StringName) -> void:
+	_rebuild_shop(category)
+	_play(CLICK_SOUND)
+
+
+## The detail card follows whatever the placer currently has selected.
+func _update_detail() -> void:
+	var def: FurnitureDef = placer.current_def() if placer != null else null
+	if def == null or not def.shop:
+		_detail_icon.texture = null
+		_detail_name.text = "Nothing selected"
+		_detail_price.text = ""
+		_detail_info.text = "Click a card to pick something to place."
+		return
+	_detail_icon.texture = _icon(def)
+	_detail_name.text = def.display_name
+	_detail_price.text = "$%d" % def.cost if def.cost > 0 else "free"
+	var size := def.resolved_footprint()
+	_detail_info.text = "%d x %d m\n%s\nLMB place   R rotate\nRMB remove / put back" % [
+		size.x, size.y, ", ".join(def.tags)]
 
 
 func _build_summary() -> void:
@@ -410,6 +531,7 @@ func _on_catalog_pressed(id: StringName) -> void:
 	if placer == null:
 		return
 	placer.select_by_id(id)
+	_update_detail()
 	_play(CLICK_SOUND)
 
 
@@ -431,6 +553,14 @@ func _on_next_day_pressed() -> void:
 		day.finish_day()
 
 
+func _on_placer_selection(_text: String) -> void:
+	_update_detail()
+
+
+func _on_hint(text: String) -> void:
+	_catalog_status.text = text
+
+
 func _on_day_finished(summary: Dictionary) -> void:
 	_summary_label.text = "Day %d %s\n\nOrders served: %d\nMoney: $%d%s" % [
 		int(summary.get("day", 0)),
@@ -438,6 +568,57 @@ func _on_day_finished(summary: Dictionary) -> void:
 		int(summary.get("served", 0)),
 		int(summary.get("money", 0)),
 		"\n" + str(summary.get("reason", "")) if summary.get("lost", false) else ""]
+	if bool(summary.get("lost", false)) and _horror_running:
+		_finish_horror_cutscene(summary)
+	else:
+		_summary.visible = true
+
+
+# ---------------------------------------------------------------------------
+# The horror cutscene (customers break in and eat the staff)
+# ---------------------------------------------------------------------------
+
+## The mob is inside: letterbox in, slow motion, watch it happen. The title card
+## and the summary follow when the day closes (see _on_day_finished).
+func _on_mob_started(edges: Array) -> void:
+	if cutscene == null or _horror_running:
+		return
+	_horror_running = true
+	_catalog_panel.visible = false
+	_order_panel.visible = false
+	_start_button.visible = false
+	cutscene.begin()
+	cutscene.set_slow_motion(service, HORROR_SLOW_MOTION)
+	_play(GLASS_SOUND)
+	await cutscene.letterbox(true, 0.4)
+	if not edges.is_empty():
+		var edge: Vector3i = edges[0]
+		await cutscene.focus_cell(Vector2i(edge.x, edge.y), 9.5, 0.9)
+	await cutscene.vignette(0.55, 1.0)
+	await cutscene.shake(0.12, 0.35)
+	# Let the chase play out (skippable), then hold on the empty kitchen.
+	while service != null and service.mob_active and cutscene != null \
+			and not cutscene.skip_requested():
+		await get_tree().create_timer(0.15).timeout
+	if cutscene == null:
+		return
+	if service != null and not service.workers.is_empty():
+		await cutscene.focus_cell(service.workers[0].spawn_cell, 12.0, 0.8)
+
+
+func _finish_horror_cutscene(summary: Dictionary) -> void:
+	var eaten := int(summary.get("eaten", 0))
+	var subtitle := str(summary.get("reason", ""))
+	if subtitle.is_empty():
+		subtitle = "the kitchen is quiet now"
+	await cutscene.title("DAY LOST", subtitle, 2.0)
+	await cutscene.shake(0.3, 0.5)
+	cutscene.set_slow_motion(service, 1.0)
+	await cutscene.finish()
+	_horror_running = false
+	_summary.visible = true
+	if service != null:
+		service.sim_speed = 1.0
 
 
 func _refresh_money() -> void:
@@ -451,7 +632,16 @@ func _refresh_money() -> void:
 	for child in _catalog_grid.get_children():
 		var button := child as Button
 		if button != null and button.has_meta("cost"):
-			button.disabled = not service.orders.can_afford(int(button.get_meta("cost")))
+			var affordable := service.orders.can_afford(int(button.get_meta("cost")))
+			button.disabled = not affordable
+			button.modulate = Color.WHITE if affordable else Color(1, 1, 1, 0.45)
+			button.button_pressed = button.get_meta("id") == (placer.current_def().id if placer != null and placer.current_def() != null else &"")
+	if _detail_price != null:
+		var def: FurnitureDef = placer.current_def() if placer != null else null
+		if def != null and def.cost > 0 and not service.orders.can_afford(def.cost):
+			_catalog_status.text = "Not enough money for the %s" % def.display_name
+		elif _catalog_status.text.begins_with("Not enough money"):
+			_catalog_status.text = ""
 
 
 # ---------------------------------------------------------------------------

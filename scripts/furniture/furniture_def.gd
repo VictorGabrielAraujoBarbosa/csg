@@ -28,8 +28,16 @@ extends Resource
 ## Extra yaw applied to the model (the blueprints of the kit face +Z by default).
 @export var yaw_offset_deg: float = 0.0
 @export var extra_offset: Vector3 = Vector3.ZERO
+## Height items rest at (metres). 0 = measure the model; set it for props whose
+## decoration (a bowl, a stack of trays) is taller than the real work surface.
+@export var surface_override := 0.0
 @export var cost: int = 0
 @export var tags: Array[StringName] = []
+## Buyable in the build-phase shop. Decor pieces are map-authoring only: they
+## stay in the catalog (dev maps, the level designer) but not on sale.
+@export var shop := false
+## Shop grouping: "stations", "surfaces", "workers" (or "decor").
+@export var category: StringName = &"decor"
 
 var _auto_size := Vector2i.ZERO
 

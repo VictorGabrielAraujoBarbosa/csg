@@ -203,6 +203,18 @@ func to_text() -> String:
 	return "\n".join(parts) + "\n"
 
 
+## A blank rectangular room: every cell floor, walls derived, nothing placed.
+## Used by the level designer's "new map".
+static func blank(size: Vector2i, floor_kind := Floor.TILE) -> KitchenLayout:
+	var layout := KitchenLayout.new()
+	var w := maxi(size.x, 1)
+	var h := maxi(size.y, 1)
+	for x in w:
+		for z in h:
+			layout.floors[Vector2i(x, z)] = floor_kind
+	return layout
+
+
 static func from_text(text: String) -> KitchenLayout:
 	var layout := KitchenLayout.new()
 	var lines: PackedStringArray = []
@@ -341,6 +353,10 @@ func _edge_char(cell: Vector2i, dir: int) -> String:
 	var kind := get_wall_key(edge_key(cell, dir))
 	if kind == Wall.OPEN:
 		return " "
+	# Solid walls read as "|" when vertical and "-" when horizontal (both parse
+	# back the same way); windows / doorways / low walls use their own letter.
+	if kind == Wall.SOLID:
+		return "|" if dir == DIR_X else "-"
 	return WALL_CHAR.get(kind, "-")
 
 

@@ -6,13 +6,13 @@ the customers stop waiting and come for you.
 
 Built with **Godot 4.7** (GL Compatibility renderer) using the Kenney CC0 3D kits.
 
-> **Status: Prototype 4 — build phase & day phase.** Grid, map authoring, furniture, colouring,
-> look & feel and the full order pipeline are in: recipes, recursive job planning, a finite tray
-> pool that cycles through the kitchen, deterministic tick simulation and toilet-shaped chibi
-> workers. The gameplay layer on top is now playable: build your kitchen from a catalog, start
-> the day, serve the order cards (with modifiers like "no cheese" or "with fries") before the
-> queue or the clock gets you, then take the money back to the build phase. See
-> [Roadmap](#roadmap) and [Not implemented yet](#not-implemented-yet).
+> **Status: Prototype 5 — polish & horror.** The full loop is playable: build your kitchen from
+> the shop, start the day, serve the order cards (modifiers included) before the queue or the
+> clock gets you — and when a day is lost, the customers smash the windows and eat the staff.
+> Windows and doorways are proper 2 m features, composed props (a real cutting table, a plating
+> station) sit next to the plain kit pieces, and a **level designer** (`M`) authors maps — the
+> game boots the authored `start_kitchen.txt`. See [Roadmap](#roadmap) and
+> [Not implemented yet](#not-implemented-yet).
 
 ---
 
@@ -194,8 +194,27 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
   Day 1 asks 3 orders over 60 s; each later day adds one order and 12 s. No arrivals after the
   last planned slot — the day only extends while orders are still pending, and it ends once the
   last one is served.
-- **Losing a day**: more than 5 pending orders, or any order older than 60 s. (The customers
-  breaking in and eating you is the horror step, not in yet.)
+- **Losing a day**: more than 5 pending orders, or any order older than 60 s. The day does not end
+  there: the customers smash the windows farthest from your staff, climb in and hunt. Workers
+  panic and flee; whoever is caught is gone until the next day. The summary follows the last bite,
+  behind a short cutscene (letterbox, slow motion, "DAY LOST"). Broken windows are runtime state —
+  they are repaired when the next build phase starts and never saved into the map.
+
+## The level designer
+
+Press `M` to open it (dev tool, ships with the game for authoring):
+
+- **Tools**: floor tile / plating, wall, window, doorway, low wall, erase, material paint, wall
+  paint, tag preset, intake point, delivery point. Windows and doorways are 2 m features: the
+  tools place a *pair* of edges, and they refuse with a hint when there is no second cell.
+- **Colour**: swatches for floor, wall and furniture tints (the same palette the tag preset uses).
+- **Decor**: the pieces that are not on sale (fridges, bars, tables, sofas, plants) are placeable
+  here for free, so a starting kitchen can be furnished by hand.
+- **Map file**: name + Save (into `res://resources/layouts/` when running from the editor,
+  `user://maps/` otherwise), a Load list of every map in the project, a Blank W×H button, and
+  **Use as start map** — which writes `start_kitchen.txt`, the map the game boots.
+- The map text format is the save format and stays hand-editable: `-`/`|` walls, `w` window,
+  `d` doorway, `l` low wall, `.`/`:` floors, plus `[colors]`, `[points]`, `[furniture]` sections.
 
 ## Simulation & presentation
 
@@ -218,8 +237,9 @@ presentation. Animations must stay in real time; never tie smoothness to the tic
 
 - Per-second arrival chance rolls and mid-day top-ups: a day's arrivals are all planned up front
   from (day, seed) and nothing is added after the last slot.
-- Losing the **run**: a day can be lost (queue overflow past `max_pending` or an order older
-  than `time_limit`), but there is no game-over flow yet — you just take the loss and build again.
+- Losing the **run**: a day can be lost (and now ends with the staff being eaten), but there is no
+  game-over flow yet — you take the loss and build again. The eaten staff currently comes back for
+  free; a rehire fee is the obvious balance knob.
 - Selling appliances (buying works; RMB deletes for free, no refunds).
 - Async stations (oven, deep pot) that work without a worker, progress bars, and burning food
   left too long. Modifiers are recipe variants only — `+ fries` is fetched from storage, there
@@ -228,7 +248,11 @@ presentation. Animations must stay in real time; never tie smoothness to the tic
 - Worker limitations: workers can share a cell (no collision between them) and carry exactly
   one item at a time. Worker types/skills are not implemented — `Service.assignment_cost()` is
   the seam where they will change who takes which job.
-- The "customers break in and eat you" horror event, synergies, audio, save/load.
+- VFX and gameplay audio: the sim emits a presentation event seam (`work_started`,
+  `item_spawned`, `order_delivered`, `window_broken`, `worker_consumed`, …) and the UI plays a few
+  interface sounds, but there are no particles or positional sounds yet.
+- The customers are placeholders (green toilets) and always enter through windows; there is no
+  customer art, no queue outside, and no customer variety. Save/load is also still missing.
 
 ## Development tools
 
@@ -278,6 +302,9 @@ colouring and the checkerboard are runtime material tints, dish photos are the f
    posts~~ ✅ (mesh is still a toilet)
 4. ~~Build phase & day phase: buy catalog, seeded day schedules, order modifiers, order-card UI,
    day win/loss, money, drag-and-drop rearranging~~ ✅
-5. Economy & stations polish: selling, day-start shop stock, async stations (oven/pot) with
+5. **Polish & horror** (in progress): 2 m windows/doors, shop vs decor, composed props, the level
+   designer + authored start map, and the customers-break-in event with a loss cutscene ✅ —
+   still open: VFX/audio over the sim event seam, selling, day-start stock, async stations
+6. Economy & stations: selling appliances, day-start shop stock, async stations (oven/pot) with
    progress and burning, modifiers that need stations (fries/fryer), queue-pressure tuning
-6. The horror: customers break in and eat you, synergies, audio, real character art, polish
+7. Character art, more horror beats (customer variety, repair costs), synergies, save/load

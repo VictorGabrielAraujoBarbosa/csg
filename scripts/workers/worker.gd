@@ -8,7 +8,7 @@ extends Node3D
 ## ([method _process]) interpolates in real time: gliding between cells, a walk
 ## bob, a work bob and the carried item held in front.
 
-enum State { IDLE, TO_HOME, TO_PICKUP, TO_DROP, TO_WORK, WORK }
+enum State { IDLE, TO_HOME, TO_PICKUP, TO_DROP, TO_WORK, WORK, FLEE }
 
 const TOILET_SCENE := "res://assets/kenney_furniture-kit/Models/GLTF format/toilet.glb"
 
@@ -19,6 +19,8 @@ var spawn_cell := Vector2i.ZERO
 var state := State.IDLE
 var job: Job = null
 var tint_color := Color.WHITE
+## Eaten by a customer: gone for the rest of the day (the post restaffs later).
+var eaten := false
 
 var _path: Array[Vector2i] = []
 var _path_index := 0
@@ -104,6 +106,8 @@ func state_name() -> String:
 			return "walking"
 		State.WORK:
 			return "working"
+		State.FLEE:
+			return "fleeing"
 	return "?"
 
 
@@ -119,7 +123,7 @@ func tick(_now: int) -> void:
 		State.IDLE:
 			if cell != spawn_cell:
 				_go_home()
-		State.TO_HOME, State.TO_PICKUP, State.TO_DROP, State.TO_WORK:
+		State.TO_HOME, State.TO_PICKUP, State.TO_DROP, State.TO_WORK, State.FLEE:
 			_advance_path()
 		State.WORK:
 			_work_left -= 1
@@ -186,6 +190,49 @@ func _go_to(target_cell: Vector2i, new_state: int) -> void:
 	state = new_state
 
 
+## Panic: drop what we are doing and run to the cell farthest from any customer.
+## Called by the Service every few ticks while the mob is inside.
+func flee_from(threats: Array[Vector2i]) -> void:
+	if eaten or threats.is_empty():
+		return
+	if _carrying != null:
+		service.drop_carried(_carrying, cell)
+		_carrying = null
+	if job != null:
+		service.board.cancel(job, "fleeing")
+		job = null
+	var goal := _flee_target(threats)
+	if goal.x < -1000 or goal == cell:
+		state = State.FLEE if goal.x > -1000 else state
+		return
+	var path := Pathfinder.find_path(service.kitchen, cell, goal)
+	if path.is_empty():
+		return
+	_path = path
+	_path_index = 0
+	_cell_ticks = 0
+	state = State.FLEE
+
+
+## The walkable cell (within a small radius) that is farthest from every threat.
+func _flee_target(threats: Array[Vector2i]) -> Vector2i:
+	var best := Vector2i(-2147483647, -2147483647)
+	var best_score := -1
+	var radius := 7
+	for dx in range(-radius, radius + 1):
+		for dz in range(-radius, radius + 1):
+			var candidate := cell + Vector2i(dx, dz)
+			if not service.kitchen.is_walkable(candidate):
+				continue
+			var nearest := 1 << 30
+			for threat in threats:
+				nearest = mini(nearest, absi(threat.x - candidate.x) + absi(threat.y - candidate.y))
+			if nearest > best_score:
+				best_score = nearest
+				best = candidate
+	return best
+
+
 func _advance_path() -> void:
 	_cell_ticks += 1
 	if _cell_ticks < maxi(service.walk_ticks_per_cell, 1):
@@ -203,6 +250,9 @@ func _on_arrived() -> void:
 	match state:
 		State.TO_HOME:
 			state = State.IDLE
+		State.FLEE:
+			state = State.IDLE
+			_go_home()
 		State.TO_PICKUP:
 			_carrying = service.pick_up(job, self)
 			if _carrying == null:
@@ -212,6 +262,7 @@ func _on_arrived() -> void:
 		State.TO_WORK:
 			state = State.WORK
 			_work_left = maxi(job.recipe.duration_ticks, 1)
+			service.work_started.emit(self, job)
 		State.TO_DROP:
 			service.finish_transfer(job)
 			_carrying = null
@@ -219,7 +270,7 @@ func _on_arrived() -> void:
 
 
 func _finish_work() -> void:
-	service.finish_produce(job)
+	service.finish_produce(job, self)
 	_finish_job()
 
 

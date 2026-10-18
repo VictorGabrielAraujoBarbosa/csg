@@ -25,6 +25,8 @@ const PIECE_FILES := {
 	"column": "column-thin.glb",
 }
 const NO_EDGE := Vector3i(-2147483647, 0, 0)
+## Where the level designer saves and loads map files.
+const LAYOUT_DIR := "res://resources/layouts"
 const POINT_TABLE := "res://assets/kenney_furniture-kit/Models/GLTF format/tableCoffeeSquare.glb"
 
 @export_file("*.txt") var layout_file: String = "":
@@ -156,6 +158,79 @@ func is_point(cell: Vector2i) -> bool:
 	return data != null and data.points.has(cell)
 
 
+# ---------------------------------------------------------------------------
+# Broken edges (the horror event)
+# ---------------------------------------------------------------------------
+# Edges the mob has smashed open. Runtime state only: the layout data is never
+# touched, so a broken window is not written into the map file and the kitchen
+# is whole again the next day (see [method clear_broken_edges]).
+
+var _broken_edges: Dictionary = {}  # Vector3i -> true
+
+
+## Smashes a whole window / doorway feature open: every edge of the feature
+## becomes a hole someone can walk through. Returns the broken edges.
+func break_wall_feature(edge: Vector3i) -> Array[Vector3i]:
+	var broken: Array[Vector3i] = []
+	if data == null or _broken_edges.has(edge):
+		return broken
+	var kind: int = data.get_wall_key(edge)
+	if kind != KitchenLayout.Wall.WINDOW and kind != KitchenLayout.Wall.DOORWAY:
+		return broken
+	var tint: Color = data.wall_tints.get(edge, Color.WHITE)
+	var edges: Array[Vector3i] = [edge]
+	for off in _edge_line_offsets(edge):
+		var n := edge + off
+		if data.get_wall_key(n) == kind \
+				and (data.wall_tints.get(n, Color.WHITE) as Color).is_equal_approx(tint):
+			edges.append(n)
+			break
+	for e in edges:
+		_broken_edges[e] = true
+	_refresh_walls_around(edges)
+	return edges
+
+
+func is_broken(edge: Vector3i) -> bool:
+	return _broken_edges.has(edge)
+
+
+func broken_edges() -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	for edge: Vector3i in _broken_edges:
+		out.append(edge)
+	return out
+
+
+## Repairs everything (called when a new day starts).
+func clear_broken_edges() -> void:
+	if _broken_edges.is_empty():
+		return
+	var edges: Array[Vector3i] = broken_edges()
+	_broken_edges.clear()
+	_refresh_walls_around(edges)
+
+
+## Can someone walk from [param a] to [param b]? Open and doorway edges, plus
+## anything the mob smashed open.
+func can_cross(a: Vector2i, b: Vector2i) -> bool:
+	if data == null:
+		return false
+	var step := b - a
+	var key: Vector3i
+	if step == Vector2i(1, 0):
+		key = KitchenLayout.edge_key(a, KitchenLayout.DIR_X)
+	elif step == Vector2i(-1, 0):
+		key = KitchenLayout.edge_key(b, KitchenLayout.DIR_X)
+	elif step == Vector2i(0, 1):
+		key = KitchenLayout.edge_key(a, KitchenLayout.DIR_Z)
+	else:
+		key = KitchenLayout.edge_key(b, KitchenLayout.DIR_Z)
+	if _broken_edges.has(key):
+		return true
+	return data.can_cross(a, b)
+
+
 func get_points() -> Dictionary:
 	return data.points if data != null else {}
 
@@ -178,7 +253,7 @@ func surface_height(cell: Vector2i) -> float:
 		return _point_top
 	var inst: FurnitureInstance = _furniture_by_cell.get(cell)
 	if inst != null and inst.def.solid:
-		return inst.surface_y
+		return inst.def.surface_override if inst.def.surface_override > 0.0 else inst.surface_y
 	return 0.05
 
 
@@ -421,6 +496,64 @@ func _sync_furniture_entry(inst: FurnitureInstance) -> void:
 	data.furniture.append(entry)
 
 
+## Saves the current layout as text (the same format [method KitchenLayout.from_text] reads).
+func save_layout(path: String) -> bool:
+	if data == null:
+		return false
+	var dir := path.get_base_dir()
+	if not dir.is_empty():
+		DirAccess.make_dir_recursive_absolute(dir)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_warning("Kitchen: cannot write layout '%s'" % path)
+		return false
+	f.store_string(data.to_text())
+	f.close()
+	return true
+
+
+## Loads a layout text file and rebuilds the kitchen from it.
+func load_layout(path: String) -> bool:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		push_warning("Kitchen: cannot open layout '%s'" % path)
+		return false
+	var text := f.get_as_text()
+	f.close()
+	var parsed := KitchenLayout.from_text(text)
+	if parsed.floors.is_empty():
+		return false
+	layout = null  # the resource would win over the file
+	layout_file = path
+	data = parsed
+	rebuild()
+	layout_edited.emit()
+	return true
+
+
+## Replaces the world with a blank map (level designer: new map). The working
+## layout goes into [member layout], which wins over the file.
+func new_layout(size: Vector2i) -> void:
+	layout_file = ""
+	layout = KitchenLayout.blank(size)
+	data = layout
+	rebuild()
+	layout_edited.emit()
+
+
+## Every layout file shipped with the project (level designer's load list).
+static func layout_files() -> PackedStringArray:
+	var out := PackedStringArray()
+	var dir := DirAccess.open(LAYOUT_DIR)
+	if dir == null:
+		return out
+	for file in dir.get_files():
+		if file.ends_with(".txt"):
+			out.append(file)
+	out.sort()
+	return out
+
+
 ## Applies every tint of the piece, surface by surface, using the surface's
 ## material name (wood, metal, glass, ...). "*" recolours the whole piece.
 func _apply_furniture_tints(inst: FurnitureInstance) -> void:
@@ -534,6 +667,103 @@ func _apply_wall_tint(cell: Vector2i, dir: int, color: Color) -> void:
 	_refresh_walls_around([key])
 
 
+# ---------------------------------------------------------------------------
+# 2 m wall features (windows, doorways)
+# ---------------------------------------------------------------------------
+# The kit's window and doorway models are 2 m wide. A lone 1 m edge still
+# renders (squeezed to fit, see _place_wall) so older and hand-edited maps keep
+# working, but the paint tools place them as PAIRS of edges, which the wall
+# builder then draws with the native 2 m piece.
+
+## The neighbouring edge that would pair with [param edge] into one 2 m feature,
+## or NO_EDGE when there is none (a corner, another feature, or furniture).
+func wall_feature_partner(edge: Vector3i) -> Vector3i:
+	if data == null:
+		return NO_EDGE
+	var tint: Color = data.wall_tints.get(edge, Color.WHITE)
+	var offsets := _edge_line_offsets(edge)
+	for off in offsets:
+		var n := edge + off
+		if data.get_wall_key(n) != KitchenLayout.Wall.SOLID:
+			continue  # already a feature, or nothing to put a wall on
+		if not (data.wall_tints.get(n, Color.WHITE) as Color).is_equal_approx(tint):
+			continue
+		if not can_paint_wall(n, KitchenLayout.Wall.WINDOW):
+			continue
+		return n
+	return NO_EDGE
+
+
+## The two edges collinear with [param edge] (a DIR_X edge runs along z, so its
+## neighbours differ in z; a DIR_Z edge runs along x).
+func _edge_line_offsets(edge: Vector3i) -> Array[Vector3i]:
+	var offsets: Array[Vector3i] = []
+	if edge.z == KitchenLayout.DIR_X:
+		offsets.append(Vector3i(0, 1, 0))
+		offsets.append(Vector3i(0, -1, 0))
+	else:
+		offsets.append(Vector3i(1, 0, 0))
+		offsets.append(Vector3i(-1, 0, 0))
+	return offsets
+
+
+## Paints a whole 2 m feature (window or doorway) as a single undo step. Fails
+## when the hovered edge is not a plain wall or has no free neighbour to pair
+## with — a squeezed half-window is never authored by hand.
+func paint_wall_feature(edge: Vector3i, kind: int, record := true) -> bool:
+	if data == null or kind == KitchenLayout.Wall.OPEN:
+		return false
+	if data.get_wall_key(edge) != KitchenLayout.Wall.SOLID:
+		return false
+	if not can_paint_wall(edge, kind):
+		return false
+	var partner := wall_feature_partner(edge)
+	if partner == NO_EDGE or not can_paint_wall(partner, kind):
+		return false
+	var tint: Color = data.wall_tints.get(edge, Color.WHITE)
+	var edges: Array[Vector3i] = [edge, partner]
+	var kinds: Array[int] = [data.get_wall_key(edge), data.get_wall_key(partner)]
+	var tints: Array[Color] = [
+		data.wall_tints.get(edge, Color.WHITE), data.wall_tints.get(partner, Color.WHITE)]
+	for e in edges:
+		_apply_wall(Vector2i(e.x, e.y), e.z, kind)
+		_apply_wall_tint(Vector2i(e.x, e.y), e.z, tint)
+	if record:
+		push_undo({"type": "wall_feature", "edges": edges, "kinds": kinds, "tints": tints})
+		layout_edited.emit()
+	return true
+
+
+## Erases a wall edge. A window or doorway goes away with its partner, so
+## erasing never leaves a squeezed half-feature behind.
+func erase_wall_feature(edge: Vector3i, record := true) -> bool:
+	if data == null:
+		return false
+	var kind: int = data.get_wall_key(edge)
+	if kind != KitchenLayout.Wall.WINDOW and kind != KitchenLayout.Wall.DOORWAY:
+		return paint_wall(Vector2i(edge.x, edge.y), edge.z, KitchenLayout.Wall.OPEN, record)
+	var tint: Color = data.wall_tints.get(edge, Color.WHITE)
+	var edges: Array[Vector3i] = [edge]
+	for off in _edge_line_offsets(edge):
+		var n := edge + off
+		if data.get_wall_key(n) == kind \
+				and (data.wall_tints.get(n, Color.WHITE) as Color).is_equal_approx(tint):
+			edges.append(n)
+			break
+	var kinds: Array[int] = []
+	var tints: Array[Color] = []
+	for e in edges:
+		kinds.append(kind)
+		tints.append(data.wall_tints.get(e, Color.WHITE))
+	for e in edges:
+		_apply_wall(Vector2i(e.x, e.y), e.z, KitchenLayout.Wall.OPEN)
+		_apply_wall_tint(Vector2i(e.x, e.y), e.z, Color.WHITE)
+	if record:
+		push_undo({"type": "wall_feature", "edges": edges, "kinds": kinds, "tints": tints})
+		layout_edited.emit()
+	return true
+
+
 ## Painting API: structural points (order intake / delivery).
 func paint_point(cell: Vector2i, kind: int, record := true) -> bool:
 	if data == null or not data.has_floor(cell):
@@ -595,6 +825,15 @@ func _undo_one(entry: Dictionary) -> bool:
 				_apply_wall_tint(entry.cell, entry.dir, entry.old_tint)
 		"wall_tint":
 			_apply_wall_tint(entry.cell, entry.dir, entry.old)
+		"wall_feature":
+			# A 2 m window / doorway: restore every edge of the feature.
+			var feature_edges: Array = entry.edges
+			var feature_kinds: Array = entry.kinds
+			var feature_tints: Array = entry.tints
+			for i in feature_edges.size():
+				var e: Vector3i = feature_edges[i]
+				_apply_wall(Vector2i(e.x, e.y), e.z, int(feature_kinds[i]))
+				_apply_wall_tint(Vector2i(e.x, e.y), e.z, feature_tints[i])
 		"point":
 			_apply_point(entry.cell, entry.old)
 		"furniture_add":
@@ -865,6 +1104,10 @@ func _build_wall_pieces(keys: Array[Vector3i]) -> void:
 	for k in keys:
 		if used.has(k):
 			continue
+		if _broken_edges.has(k):
+			# Smashed open by the mob: renders as a hole (the columns stay).
+			used[k] = true
+			continue
 		var kind: int = data.get_wall_key(k)
 		if kind == KitchenLayout.Wall.OPEN:
 			continue
@@ -882,14 +1125,16 @@ func _build_wall_pieces(keys: Array[Vector3i]) -> void:
 
 ## A neighbouring edge on the same line, kind *and* tint, so two 1 m edges
 ## become one 2 m piece and the kit's panel seams line up.
+## A DIR_X edge runs along z (its cells differ in x), so its collinear
+## neighbours differ in z — and the other way round for DIR_Z.
 func _find_partner(k: Vector3i, kind: int, tint: Color, key_set: Dictionary, used: Dictionary) -> Vector3i:
 	var offsets: Array[Vector3i] = []
 	if k.z == KitchenLayout.DIR_X:
-		offsets.append(Vector3i(1, 0, 0))
-		offsets.append(Vector3i(-1, 0, 0))
-	else:
 		offsets.append(Vector3i(0, 1, 0))
 		offsets.append(Vector3i(0, -1, 0))
+	else:
+		offsets.append(Vector3i(1, 0, 0))
+		offsets.append(Vector3i(-1, 0, 0))
 	for off in offsets:
 		var n := k + off
 		if key_set.has(n) and not used.has(n) and data.get_wall_key(n) == kind \

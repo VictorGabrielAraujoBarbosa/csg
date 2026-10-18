@@ -6,6 +6,10 @@ extends Node
 
 const OUT_PATH := "/tmp/opencode/kitchen.png"
 
+## Horror bookkeeping for the self-test (lambdas cannot capture locals by
+## reference, so the counters live on the node).
+var _horror_eaten := 0
+
 
 func _ready() -> void:
 	var sub := SubViewport.new()
@@ -15,6 +19,17 @@ func _ready() -> void:
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	sub.add_child(scene)
 	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
+	# The game ships with the authored start map; the capture always runs on the
+	# demo kitchen so the tests and screenshots stay comparable.
+	#   --layout=res://resources/layouts/start_kitchen.txt  to shoot another map
+	var layout_override := ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--layout="):
+			layout_override = arg.split("=")[1]
+	if kitchen != null:
+		kitchen.layout = null
+		kitchen.layout_file = layout_override if not layout_override.is_empty() \
+			else "res://resources/layouts/demo_kitchen.txt"
 	var rig := scene.find_child("CameraRig", true, false) as CameraRig
 	# Optional view overrides, e.g.:
 	#   godot --path . res://tools/capture.tscn -- --pitch=88 --dist=26
@@ -79,6 +94,22 @@ func _ready() -> void:
 		_run_day(scene)
 	if "--start-day" in OS.get_cmdline_user_args():
 		_start_day(scene)
+	if "--designer" in OS.get_cmdline_user_args():
+		# Opens the level designer (the map editor + its authoring panel).
+		var editor := scene.find_child("MapPaintController", true, false) as MapPaintController
+		if editor != null:
+			editor.set_active(true)
+		var panel := scene.find_child("LevelDesigner", true, false) as Control
+		print("[designer] panel=", panel, " children=", panel.get_child_count() if panel != null else -1)
+		if panel != null:
+			panel.set_designer_visible(true)
+			print("[designer] visible=", panel.visible, " panel_node=", panel.get_node_or_null("DesignerPanel"))
+	if "--horror" in OS.get_cmdline_user_args() or "--horror=" in " ".join(OS.get_cmdline_user_args()):
+		if "--no-cutscene" in OS.get_cmdline_user_args():
+			var ui := scene.get_node_or_null("UI")
+			if ui != null:
+				ui.cutscene = null
+		_run_horror(scene)
 	if "--sim-ticks=" in " ".join(OS.get_cmdline_user_args()) and kitchen != null:
 		_run_sim_ticks(scene)
 	if "--check" in OS.get_cmdline_user_args() and kitchen != null and kitchen.data != null:
@@ -216,9 +247,11 @@ func _put(kitchen: Kitchen, by_id: Dictionary, id: StringName, cell: Vector2i, s
 func _run_day(scene: Node) -> void:
 	var service := scene.find_child("Service", true, false) as Service
 	var day := scene.find_child("DayController", true, false) as DayController
+	var kitchen := scene.find_child("Kitchen", true, false) as Kitchen
 	if service == null or day == null:
 		print("[day-sim] missing service or day controller")
 		return
+	service.worker_consumed.connect(func(_w: Worker) -> void: _horror_eaten += 1)
 	service.sim_speed = 0.0
 	service.orders.arrive_on_turn_in = false
 	_reset_world(service)
@@ -251,14 +284,73 @@ func _run_day(scene: Node) -> void:
 		"day: every served order paid out")
 	day.finish_day()
 	_expect(day.phase == DayController.Phase.BUILD, "day: back to the build phase")
-	# loss path: too many pending orders
+	# loss path: too many pending orders -> the customers break in and eat the staff
+	_horror_eaten = 0
 	_expect(day.start_day(), "day: a second day starts")
 	for i in service.orders.max_pending + 2:
 		service.request_order()
 	service.tick_once()
-	_expect(day.phase == DayController.Phase.SUMMARY and day.lost,
-		"day: too many pending orders loses the day")
+	_expect(day.phase == DayController.Phase.DAY and day.lost and day.horror,
+		"horror: too many pending orders loses the day and the mob comes in")
+	var broken_before := kitchen.broken_edges().size()
+	_expect(broken_before > 0, "horror: a window was smashed open (%d edges)" % broken_before)
+	_expect(service.customers.size() > 0, "horror: customers climbed in through the window")
+	var horror_ticks := 0
+	while day.phase == DayController.Phase.DAY and horror_ticks < 2000:
+		service.tick_once()
+		horror_ticks += 1
+	_expect(day.phase == DayController.Phase.SUMMARY and day.lost, "horror: the day ends after the attack")
+	_expect(_horror_eaten == 3, "horror: every worker was eaten (got %d in %d ticks)" % [_horror_eaten, horror_ticks])
+	_expect(service.workers.is_empty(), "horror: no staff left standing")
+	_expect(service.customers.is_empty(), "horror: the customers are cleaned up")
+	_expect(kitchen.broken_edges().size() == broken_before, "horror: broken windows stay broken for the day")
+	_expect(kitchen.can_cross(Vector2i(3, 0), Vector2i(3, 1)), "horror: a broken window can be walked through")
+	service._sync_workers()
+	_expect(service.workers.is_empty(), "horror: an eaten post stays empty for the rest of the day")
 	day.finish_day()
+	_expect(service.workers.size() == 3, "horror: the staff is back for the next build phase")
+	_expect(kitchen.broken_edges().is_empty(), "horror: the windows are repaired for the next day")
+	_expect(not kitchen.can_cross(Vector2i(3, 0), Vector2i(3, 1)), "horror: the repaired window blocks again")
+	# The attack is deterministic: the same setup eats the same staff through the
+	# same windows (the exact tick count depends on where the staff stood).
+	_expect(day.start_day(), "horror: replay day starts")
+	_horror_eaten = 0
+	for i in service.orders.max_pending + 2:
+		service.request_order()
+	service.tick_once()
+	var replay_ticks := 0
+	while day.phase == DayController.Phase.DAY and replay_ticks < 2000:
+		service.tick_once()
+		replay_ticks += 1
+	_expect(_horror_eaten == 3, "horror: the replay eats the same staff (got %d)" % _horror_eaten)
+	_expect(kitchen.broken_edges().size() >= 2,
+		"horror: the replay breaks windows again (%d edges)" % kitchen.broken_edges().size())
+	day.finish_day()
+
+
+## Loses the day on purpose and steps a few ticks into the attack, so a
+## screenshot can catch the customers inside (see --horror=ticks).
+func _run_horror(scene: Node) -> void:
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	if service == null or day == null:
+		return
+	_reset_world(service)
+	service.sim_speed = 0.0
+	if not day.start_day():
+		print("[horror] the day could not start")
+		return
+	for i in service.orders.max_pending + 2:
+		service.request_order()
+	service.tick_once()
+	var ticks := 40
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--horror="):
+			ticks = int(arg.split("=")[1])
+	service.run_ticks(ticks)
+	print("[horror] %d customers inside, %d workers left, %d broken edges, %d eaten" % [
+		service.customers.size(), service.workers.size(),
+		service.kitchen.broken_edges().size(), service.eaten_count()])
 
 
 ## Starts day 1 from a clean kitchen (for screenshots / real-time watching).
@@ -558,6 +650,45 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	kitchen.cancel_grab(dragging)
 	_expect(kitchen.furniture_at(Vector2i(12, 9)) == dragging, "cancelling a drag returns the piece home")
 	kitchen.remove_furniture_at(Vector2i(12, 9))
+	# --- 2 m windows and doorways (painted as pairs, rendered with the native piece) ---
+	var win_a := KitchenLayout.edge_key(Vector2i(3, 0), KitchenLayout.DIR_Z)
+	var win_b := KitchenLayout.edge_key(Vector2i(4, 0), KitchenLayout.DIR_Z)
+	_expect(data.get_wall_key(win_a) == KitchenLayout.Wall.WINDOW, "the demo map ships a window at (3,0)")
+	var wall_keys := {}
+	for key: Vector3i in data.walls:
+		wall_keys[key] = true
+	_expect(kitchen._find_partner(win_a, KitchenLayout.Wall.WINDOW, Color.WHITE, wall_keys, {}) == win_b,
+		"the wall builder pairs collinear window edges into one native 2 m piece")
+	var door_a := KitchenLayout.edge_key(Vector2i(13, 3), KitchenLayout.DIR_X)
+	var door_b := KitchenLayout.edge_key(Vector2i(13, 4), KitchenLayout.DIR_X)
+	_expect(kitchen._find_partner(door_a, KitchenLayout.Wall.DOORWAY, Color.WHITE, wall_keys, {}) == door_b,
+		"and collinear doorway edges pair the same way")
+	_expect(kitchen.wall_feature_partner(Vector3i(5, 5, KitchenLayout.DIR_X)) == Kitchen.NO_EDGE,
+		"an open edge in the middle of the room has nothing to pair with")
+	var free_edge := KitchenLayout.edge_key(Vector2i(6, 0), KitchenLayout.DIR_Z)
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.SOLID, "the probe edge is a plain wall")
+	var free_partner := kitchen.wall_feature_partner(free_edge)
+	_expect(free_partner == KitchenLayout.edge_key(Vector2i(7, 0), KitchenLayout.DIR_Z), "it pairs with the next cell along")
+	_expect(kitchen.paint_wall_feature(free_edge, KitchenLayout.Wall.WINDOW), "painting a window paints the whole pair")
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.WINDOW
+		and data.get_wall_key(free_partner) == KitchenLayout.Wall.WINDOW, "both edges became windows")
+	_expect(not kitchen.paint_wall_feature(free_edge, KitchenLayout.Wall.DOORWAY), "an existing window is not painted over")
+	_expect(kitchen.undo(), "undo the window feature")
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.SOLID
+		and data.get_wall_key(free_partner) == KitchenLayout.Wall.SOLID, "undo restores both edges")
+	_expect(kitchen.paint_wall_feature(free_edge, KitchenLayout.Wall.WINDOW), "paint the window again")
+	_expect(kitchen.erase_wall_feature(free_edge), "erasing a window erases its pair")
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.OPEN
+		and data.get_wall_key(free_partner) == KitchenLayout.Wall.OPEN, "both edges are gone")
+	_expect(kitchen.undo(), "undo the erase")
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.WINDOW, "the window is back")
+	_expect(kitchen.undo(), "undo the second paint")
+	_expect(data.get_wall_key(free_edge) == KitchenLayout.Wall.SOLID, "the probe edge is a plain wall again")
+	# The rendered piece for a paired feature is the native 2 m model (no squeeze).
+	var window_piece := kitchen._spawn_piece("window", Vector3.ZERO, 0.0, 1.0, Vector3.ONE)
+	_expect(window_piece != null, "the native window piece loads")
+	if window_piece != null:
+		window_piece.free()
 	_expect(kitchen.paint_wall(Vector2i(12, 9), KitchenLayout.DIR_X, KitchenLayout.Wall.SOLID), "paint an interior wall")
 	_expect(kitchen.paint_wall_tint(Vector2i(12, 9), KitchenLayout.DIR_X, Color(0.9, 0.6, 0.3)), "paint a wall tint")
 	_expect((kitchen.data.wall_tints.get(KitchenLayout.edge_key(Vector2i(12, 9), KitchenLayout.DIR_X), Color.WHITE) as Color)
@@ -676,6 +807,29 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(wallet.money == purse, "money: refunds add back")
 		_expect(not wallet.try_spend(purse + 10), "money: spending more than the purse is refused")
 		_expect(wallet.money == purse, "money: a refused purchase changes nothing")
+		# --- shop, decor and composed props ---
+		var shop_ids: Array[StringName] = []
+		for def in FurnitureCatalog.shop_items():
+			shop_ids.append(def.id)
+		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post"]:
+			_expect(shop_ids.has(wanted), "shop: %s is on sale" % wanted)
+		_expect(not shop_ids.has(&"plant") and not shop_ids.has(&"sofa") and not shop_ids.has(&"trash")
+			and not shop_ids.has(&"fridge"), "shop: decor and functionless pieces are not on sale")
+		_expect(FurnitureCatalog.shop_categories().size() >= 3, "shop: the pieces are grouped into categories")
+		var cutting := FurnitureCatalog.find(&"cutting_table")
+		_expect(cutting != null and cutting.shop, "props: the composed cutting table is a shop item")
+		if cutting != null:
+			_expect(cutting.resolved_footprint() == Vector2i(1, 1), "props: the cutting table measures 1x1")
+			_expect(is_equal_approx(cutting.surface_override, 0.9), "props: it declares its work surface height")
+			var placed_prop := kitchen.place_furniture(cutting, Vector2i(2, 9), 0)
+			_expect(placed_prop != null, "props: the cutting table can be placed")
+			if placed_prop != null:
+				_expect(is_equal_approx(kitchen.surface_height(Vector2i(2, 9)), 0.9),
+					"props: items rest on its counter, not on the bowl")
+				kitchen.remove_furniture_at(Vector2i(2, 9))
+		var plating := FurnitureCatalog.find(&"plating_station")
+		_expect(plating != null and plating.resolved_footprint() == Vector2i(1, 1),
+			"props: the plating station measures 1x1 too")
 		# --- modifiers: variants and payload matching ---
 		var no_cheese := RecipeCatalog.variant_of(&"burger", [&"no_cheese"])
 		_expect(no_cheese != null and no_cheese.variant_id == &"burger__no_cheese",

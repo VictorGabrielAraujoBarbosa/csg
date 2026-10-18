@@ -1,0 +1,28 @@
+[gd_scene load_steps=5 format=3]
+
+; Cutting / prep station: a kitchen cabinet (the plain "counter" model, so the
+; station tiles flush into a counter run) with a cutting board, a knife lying on
+; it and a small bowl beside it. Every child is a Kenney model used as-is; the
+; whole thing is scaled by 2 at runtime (FurnitureDef.scale_mult), so the food
+; kit children sit at 0.25-0.35 to match the in-game food size (world 0.5-0.7).
+;
+; Native kit units: the cabinet is 0.43 x 0.45 x 0.45 (its door faces +Z), so
+; the composition stays inside that box => 1x1 cells after the x2 scale.
+
+[ext_resource type="PackedScene" uid="uid://c8kml35vxk6o0" path="res://assets/kenney_furniture-kit/Models/GLTF format/kitchenCabinet.glb" id="1_cabinet"]
+[ext_resource type="PackedScene" uid="uid://dpij35anp3jty" path="res://assets/kenney_food-kit/Models/GLB format/cutting-board.glb" id="2_board"]
+[ext_resource type="PackedScene" uid="uid://b7xnmlxotrri" path="res://assets/kenney_food-kit/Models/GLB format/cooking-knife.glb" id="3_knife"]
+[ext_resource type="PackedScene" uid="uid://m5hnlelyd2ko" path="res://assets/kenney_food-kit/Models/GLB format/bowl.glb" id="4_bowl"]
+
+[node name="CuttingTable" type="Node3D"]
+
+[node name="Cabinet" parent="." instance=ExtResource("1_cabinet")]
+
+[node name="CuttingBoard" parent="." instance=ExtResource("2_board")]
+transform = Transform3D(-0.04871, 0, 0.346595, 0, 0.35, 0, -0.346595, 0, -0.04871, 0.16, 0.45, -0.21)
+
+[node name="Knife" parent="." instance=ExtResource("3_knife")]
+transform = Transform3D(0.269638, 0, 0.131511, 0, 0.3, 0, -0.131511, 0, 0.269638, 0.15, 0.471, -0.185)
+
+[node name="Bowl" parent="." instance=ExtResource("4_bowl")]
+transform = Transform3D(0.25, 0, 0, 0, 0.25, 0, 0, 0, 0.25, 0.36, 0.45, -0.375)

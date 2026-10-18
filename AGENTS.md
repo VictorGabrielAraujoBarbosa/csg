@@ -10,17 +10,42 @@ Guidance for AI agents (and humans) making changes to this repository. Read this
 | Prototype 1 | `c5e0877` | 1 m grid + text map format, `Kitchen` builder, live map editor + colour tools, furniture placement, camera/look config, persistence, capture tool + self-tests |
 | Prototype 2 | `0b05843` | Tick-based deterministic simulation (10/s), real-time presentation interpolation, order/recipe/job pipeline + finite tray cycle, visibility fixes (cartoon-big items, centred points, measured surface heights) |
 | Prototype 3 | `14f22b6` | Real workers (toilet chibis: A*, operate, carry), workers as placed furniture with tinted posts + home return, central priority-ordered assignment, one-item-per-slot, placeholder executor deleted |
-| **Prototype 4** | (this commit) | Build phase & day phase: buy catalog, seeded day schedules, order modifiers as recipe variants, order-card UI over a rounded kitchen viewport, day win/loss, money, drag-and-drop rearranging |
+| **Prototype 4** | `3535bd8` | Build phase & day phase: buy catalog, seeded day schedules, order modifiers as recipe variants, order-card UI over a rounded kitchen viewport, day win/loss, money, drag-and-drop rearranging |
+| **Prototype 5 (in progress)** | — | Polish & horror: 2 m windows/doors (fixed the wall pairing), shop split from decor, composed props (cutting table, plating station), level designer UI + start map, the customers-break-in horror event with a loss cutscene |
 
-Current verification baseline: **142 self-tests green**; deterministic sim = first burger ~234
+Current verification baseline: **178 self-tests green**; deterministic sim = first burger ~234
 ticks, 4 orders incl. tray wash ~696 ticks, all workers back home when the board empties; one
-full headless day (day 1: 725 ticks, 3/3 served, gate clean) plus the loss path.
+full headless day (day 1: 725 ticks, 3/3 served, gate clean) plus the loss path — which now runs
+the whole horror: windows smashed, mob in, staff eaten, staff rehired next day.
 
-## Current work: Prototype 5 (not started) — economy & stations polish
+## Current work: Prototype 5 — polish & horror
 
-Prototype 4 is done. Next up, in rough order: selling appliances, day-start shop stock, async
-stations (oven/pot) with progress bars and burning, modifier stations (fries need a fryer),
-queue-pressure tuning, then the horror event (customers break in and eat you).
+Landed so far:
+- **World**: windows and doorways are 2 m features. The paint tools place a *pair* of edges and
+  the wall builder draws one native piece; a lone legacy edge still renders squeezed. This also
+  fixed a real bug: the builder's partner search had its offsets swapped, so *no* feature ever
+  paired and every window/doorway in the game was a squeezed half-width sliver.
+- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is the five pieces with a job
+  (stove, sink, counter, assembly table, worker post) plus the composed props; everything else
+  (fridges, bars, tables, sofas, plants) stays in the catalog for dev-authored maps only.
+- **Composed props** (`resources/props/*.tscn`): several Kenney models in one scene, measured
+  like any piece (`cutting_table`, `plating_station`). `FurnitureDef.surface_override` puts items
+  on the work surface rather than on the tallest decoration.
+- **Level designer** (`scripts/ui/level_designer.gd`, `M`): tool palette, colour swatches, decor
+  palette with free placement, map file panel (save / load / blank W×H / "use as start map"),
+  status + hint line. Maps are written to `res://resources/layouts/` in editor runs.
+- **Start map**: the game now boots `resources/layouts/start_kitchen.txt` (an authored shell with
+  a kitchen, a dining room, a 2 m doorway pass, window pairs, a front door and the intake /
+  delivery points). The capture tool always pins the demo kitchen so tests stay comparable.
+- **The horror**: losing a day no longer ends it — the customers (placeholder radioactive-green
+  toilets) smash the windows farthest from the staff, climb in and hunt. Workers panic and flee
+  (`Worker.State.FLEE`), get eaten one by one (gone until the next day), and only when the
+  kitchen is empty does the summary follow, behind a cutscene (letterbox, focus on the broken
+  window, slow motion, vignette, "DAY LOST" card, shake). Broken windows are a *runtime* overlay:
+  never saved, repaired when the next build phase starts.
+
+Still to come in this prototype: the VFX/audio layer over the sim event seam, selling appliances,
+day-start stock, async stations, queue tuning, and the build-phase UI polish pass.
 
 ### Prototype 4 spec — what was built (reference)
 
@@ -126,9 +151,16 @@ fryer); async stations + burning; endless mode; save/load; real character art.
 - **World in a viewport**: `scenes/main.tscn` puts every 3D node under `Main/World`
   (a `SubViewport`); `Main/UI` (CanvasLayer, `scripts/ui/game_ui.gd`) draws the kitchen as a
   `TextureRect` (`KitchenFrame`) with the rounded-corner shader, the blueprint backdrop, order
-  cards, catalog, Start Day button and summary, and forwards GUI input into the viewport.
-  `Main/UI/DevHud` (`scripts/ui/hud.gd`, a `Control`) is the dev overlay (money, tick, jobs,
-  warnings); `main.gd` wires the controllers and dev hotkeys.
+  cards, shop, Start Day button and summary, and forwards GUI input into the viewport.
+  `Main/UI/DevHud` (`scripts/ui/hud.gd`, a `Control`) is the dev overlay (hidden by default, `F1`);
+  `Main/UI/LevelDesigner` (`scripts/ui/level_designer.gd`) is the map-authoring UI (`M`);
+  `Main/UI/Cutscene` (`scripts/ui/cutscene_director.gd`) runs scripted camera beats.
+- **Horror**: `Customer` (`scripts/game/customer.gd`, a green toilet) hunts the nearest worker;
+  `Service.start_mob()` smashes the windows farthest from the staff and spawns the mob; fleeing
+  workers use `Worker.flee_from()`; `Kitchen` keeps smashed edges in a runtime-only
+  `_broken_edges` overlay (passable, drawn as a hole, never saved, repaired next build phase).
+- **Level designer**: `Kitchen.save_layout()` / `load_layout()` / `new_layout()` +
+  `KitchenLayout.blank()`; `Kitchen.layout_files()` lists `res://resources/layouts/*.txt`.
 
 ## Invariants — do not break these
 

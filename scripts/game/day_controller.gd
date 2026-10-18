@@ -32,6 +32,15 @@ signal reasons_changed(reasons: Array)
 ## An order waiting longer than this loses the day.
 @export var order_time_limit_ticks := 600
 
+@export_group("Horror")
+## A lost day ends with the customers breaking in and eating the staff.
+@export var horror_enabled := true
+## Customers = mob_base + day, capped at mob_max.
+@export var mob_base := 2
+@export var mob_max := 6
+## Safety cap on the attack, in ticks; then the day closes anyway.
+@export var horror_timeout_ticks := 900
+
 var phase := Phase.BUILD
 var day := 0
 var plan: DayPlan
@@ -41,6 +50,10 @@ var served := 0
 var lost := false
 var loss_reason := ""
 var summary: Dictionary = {}
+## True while the customers are inside eating the staff.
+var horror := false
+
+var _horror_deadline := 0
 
 
 func _ready() -> void:
@@ -61,6 +74,10 @@ func _ready() -> void:
 ## step the world manually and get identical results.
 func _on_tick(_tick: int) -> void:
 	if phase != Phase.DAY:
+		return
+	if horror:
+		if not service.mob_active or service.tick >= _horror_deadline:
+			_end_horror()
 		return
 	_fire_arrivals()
 	if _check_loss():
@@ -95,6 +112,13 @@ func start_day() -> bool:
 	lost = false
 	loss_reason = ""
 	summary = {}
+	horror = false
+	# A new day: the windows are repaired and the eaten staff is back on shift.
+	if kitchen != null:
+		kitchen.clear_broken_edges()
+	if service != null:
+		service.stop_mob()
+		service.clear_eaten_posts()
 	phase = Phase.DAY
 	phase_changed.emit(phase)
 	print("[day] day %d starts: %d orders over %d ticks (seed %d)" % [
@@ -105,6 +129,10 @@ func start_day() -> bool:
 func finish_day() -> void:
 	# Leave the day phase (used by the summary screen's button).
 	if phase == Phase.SUMMARY:
+		if service != null:
+			service.clear_eaten_posts()
+		if kitchen != null:
+			kitchen.clear_broken_edges()
 		phase = Phase.BUILD
 		phase_changed.emit(phase)
 
@@ -131,42 +159,69 @@ func _fire_arrivals() -> void:
 func _check_loss() -> bool:
 	var active := service.orders.active_orders()
 	if active.size() > service.orders.max_pending:
-		_finish_day(true, "too many orders waiting")
+		_lose_day("too many orders waiting")
 		return true
 	for order in active:
 		if service.tick - order.created_tick > order_time_limit_ticks:
 			print("[day] order #%d waited %d ticks (limit %d)" % [
 				order.id, service.tick - order.created_tick, order_time_limit_ticks])
-			_finish_day(true, "an order waited too long")
+			_lose_day("an order waited too long")
 			return true
 	return false
 
 
+## A lost day is not over yet: the customers break in through the windows and
+## eat the staff. The day only closes once the kitchen is empty (or the attack
+## times out), so the summary follows the horror instead of interrupting it.
+func _lose_day(reason: String) -> void:
+	lost = true
+	loss_reason = reason
+	for order in service.orders.active_orders():
+		service.orders.fail(order, reason)
+		service.board.cancel_for_order(order)
+	if not horror_enabled:
+		_finish_day()
+		return
+	var count := mini(mob_base + day, mob_max)
+	var broken: Array[Vector3i] = service.start_mob(count)
+	if broken.is_empty():
+		_finish_day()
+		return
+	horror = true
+	_horror_deadline = service.tick + horror_timeout_ticks
+	print("[day] day %d lost (%s) — %d customers break in through %d window edge(s)" % [
+		day, reason, count, broken.size()])
+
+
+func _end_horror() -> void:
+	horror = false
+	service.stop_mob()
+	_finish_day()
+
+
 func _check_end() -> void:
 	if next_arrival >= plan.arrivals.size() and service.orders.active_orders().is_empty():
-		_finish_day(false, "")
+		_finish_day()
 
 
-func _finish_day(failed: bool, reason: String) -> void:
-	lost = failed
-	loss_reason = reason
-	if failed:
-		for order in service.orders.active_orders():
-			service.orders.fail(order, reason)
-			service.board.cancel_for_order(order)
+func _finish_day() -> void:
+	if lost:
+		# The orders are already failed; the staff may be short a few chibis.
+		pass
 	summary = {
 		"day": day,
 		"served": served,
 		"money": service.orders.money,
-		"lost": failed,
-		"reason": reason,
+		"lost": lost,
+		"reason": loss_reason,
+		"eaten": service.eaten_count(),
 	}
 	phase = Phase.SUMMARY
 	phase_changed.emit(phase)
 	day_finished.emit(summary)
 	print("[day] day %d %s (served %d, money $%d)%s" % [
-		day, "lost" if failed else "complete", served, service.orders.money,
-		" — " + reason if failed else ""])
+		day, "lost" if lost else "complete", served, service.orders.money,
+		" — " + loss_reason if lost else ""])
 
 
 func _on_order_completed(_order: Order) -> void:

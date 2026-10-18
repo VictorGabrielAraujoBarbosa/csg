@@ -7,6 +7,8 @@ extends Node3D
 ## C cycles the tint colour, Ctrl+Z undoes.
 
 signal tool_changed(text: String)
+## A paint action was refused (the level designer shows this to the author).
+signal hint(text: String)
 
 enum Tool { FLOOR_TILE, FLOOR_PLATING, WALL, WINDOW, DOORWAY, LOW, ERASE, TINT, WALL_TINT, PRESET, PICKUP, DELIVERY }
 
@@ -280,11 +282,23 @@ func _update_ghost(wall_tool: bool) -> void:
 		_ghost_meshes.clear()
 		_collect_meshes(_ghost, _ghost_meshes)
 	var kind := _wall_kind_for_tool()
+	var feature := kind == KitchenLayout.Wall.WINDOW or kind == KitchenLayout.Wall.DOORWAY
+	var partner := kitchen.wall_feature_partner(_edge) if feature else Kitchen.NO_EDGE
 	var valid := kitchen.can_paint_wall(_edge, kind)
+	if feature:
+		valid = valid and kitchen.data.get_wall_key(_edge) == KitchenLayout.Wall.SOLID \
+			and partner != Kitchen.NO_EDGE
 	_ghost.visible = true
-	_ghost.position = _edge_center(_edge)
+	var pos := _edge_center(_edge)
+	var ghost_scale := Vector3.ONE
+	if feature and partner != Kitchen.NO_EDGE:
+		# Preview the native 2 m piece where the pair will be built.
+		pos = (_edge_center(_edge) + _edge_center(partner)) * 0.5
+	else:
+		ghost_scale = Vector3(1.0, 1.0, 0.5)
+	_ghost.position = pos
 	_ghost.rotation_degrees = Vector3(0, 0 if _edge.z == KitchenLayout.DIR_X else 90, 0)
-	_ghost.scale = Vector3.ONE
+	_ghost.scale = ghost_scale
 	var mat := _ghost_valid_mat if valid else _ghost_invalid_mat
 	for mi in _ghost_meshes:
 		mi.material_override = mat
@@ -326,11 +340,19 @@ func _apply_tool(_from_drag: bool) -> void:
 				return
 			_last_cell = _cell
 			kitchen.paint_floor(_cell, KitchenLayout.Floor.PLATING)
-		Tool.WALL, Tool.WINDOW, Tool.DOORWAY, Tool.LOW:
+		Tool.WALL, Tool.LOW:
 			if _edge == _last_edge:
 				return
 			_last_edge = _edge
 			kitchen.paint_wall(Vector2i(_edge.x, _edge.y), _edge.z, _wall_kind_for_tool())
+		Tool.WINDOW, Tool.DOORWAY:
+			# Windows and doorways are 2 m features: the tool paints a pair of
+			# edges so the kit's native piece is used instead of a squeezed one.
+			if _edge == _last_edge:
+				return
+			_last_edge = _edge
+			if not kitchen.paint_wall_feature(_edge, _wall_kind_for_tool()):
+				hint.emit("A %s needs two free wall cells side by side" % TOOL_LABELS[tool].to_lower())
 		Tool.WALL_TINT:
 			if _edge == _last_edge:
 				return
@@ -374,7 +396,7 @@ func _erase_at_hover() -> void:
 	# Contextual: a wall on the hovered edge first, then furniture, then a
 	# structural point, then the floor itself.
 	if kitchen.data.get_wall_key(_edge) != KitchenLayout.Wall.OPEN:
-		kitchen.paint_wall(Vector2i(_edge.x, _edge.y), _edge.z, KitchenLayout.Wall.OPEN)
+		kitchen.erase_wall_feature(_edge)
 		return
 	if kitchen.furniture_at(_cell) != null:
 		kitchen.remove_furniture_at(_cell)

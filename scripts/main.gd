@@ -8,6 +8,7 @@ extends Node3D
 @onready var map_editor: MapPaintController = $World/MapPaintController
 @onready var day: DayController = $World/DayController
 @onready var hint: Label = $UI/DevHud/Hint
+@onready var designer: Control = $UI/LevelDesigner
 
 
 func _ready() -> void:
@@ -39,7 +40,7 @@ func _update_hint() -> void:
 			]
 		lines.append("FURNITURE  —  %s" % item)
 		lines.append("1-9 pick | Tab next | R rotate | LMB place | RMB remove | M map edit")
-	lines.append("WASD pan | Q/E turn camera | wheel zoom | G grid | N day | F5 export layout text")
+	lines.append("WASD pan | Q/E turn camera | wheel zoom | G grid | N day | M map edit | F1 dev info")
 	hint.text = "\n".join(lines)
 
 
@@ -52,9 +53,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			var map_mode := not map_editor.active
 			map_editor.set_active(map_mode)
 			placer.set_enabled(not map_mode)
+			designer.set_designer_visible(map_mode)
 			_update_hint()
 		KEY_G:
 			kitchen.set_grid_visible(not kitchen.is_grid_visible())
+		KEY_F1:
+			var dev := get_node_or_null("UI/DevHud") as Control
+			if dev != null:
+				dev.visible = not dev.visible
 		KEY_F5:
 			_export_layout()
 		KEY_N:

@@ -13,6 +13,26 @@ signal state_changed
 ## Emitted after every simulation tick; the day controller listens to this so
 ## arrivals and day-end checks are tick-driven and deterministic.
 signal tick_passed(tick: int)
+## Presentation hooks: the VFX / audio layers listen to these, so every effect is
+## driven by the simulation instead of guessing from the view. Purely cosmetic —
+## nothing in the sim may depend on a listener.
+## A worker starts operating a station (or picking an ingredient off a surface).
+signal work_started(worker: Worker, job: Job)
+## That work finished and its outputs were spawned.
+signal work_finished(worker: Worker, job: Job)
+## A finished order left the kitchen through [param cell].
+signal order_delivered(order: Order, cell: Vector2i)
+## A worker lifted an item into its hands.
+signal item_carried(item: WorldItem, worker: Worker)
+## A carried item landed on [param cell].
+signal item_dropped(item: WorldItem, cell: Vector2i)
+## A window / wall edge broke open (the horror event).
+signal window_broken(edge: Vector3i)
+## A worker was eaten by a customer (the horror event).
+signal worker_consumed(worker: Worker)
+## The mob came in / the attack is over (the cutscene listens to these).
+signal mob_started(edges: Array)
+signal mob_finished
 
 @export var kitchen: Kitchen
 
@@ -39,12 +59,27 @@ signal tick_passed(tick: int)
 @export_group("Orders")
 @export var starting_trays := 3
 
+@export_group("Horror")
+## Scale of the customer mesh (a placeholder radioactive toilet).
+@export var customer_scale := 2.0
+## Ticks a customer spends crossing a cell — faster than a worker's walk.
+@export var customer_ticks_per_cell := 1
+## How long a customer takes to climb in before it starts hunting (ticks).
+@export var customer_enter_ticks := 12
+## Ticks a customer spends chewing after a meal.
+@export var customer_chew_ticks := 6
+## How often fleeing workers re-plan their escape.
+@export var flee_replan_ticks := 8
+
 var items: ItemManager
 var orders: OrderManager
 var board := JobBoard.new()
 var planner := Planner.new()
 var stations: Array[StationInstance] = []
 var workers: Array[Worker] = []
+## The horror: customers that broke in, and whether the attack is running.
+var customers: Array[Customer] = []
+var mob_active := false
 
 ## Simulation clock, in ticks.
 var tick := 0
@@ -52,6 +87,8 @@ var events: Array[String] = []
 
 var _accumulator := 0.0
 var _warning_seen: Dictionary = {}
+## Posts whose worker was eaten: nobody stands there until the next day.
+var _eaten_posts: Dictionary = {}
 
 
 func tick_seconds() -> float:
@@ -93,13 +130,154 @@ func _process(delta: float) -> void:
 func tick_once() -> void:
 	tick += 1
 	orders.tick_once()
-	_assign_jobs()
-	for worker in workers:
-		worker.tick(tick)
-	if ticks_per_second > 0 and tick % maxi(ticks_per_second * 2, 1) == 0:
-		_retry_unplannable()
+	if mob_active:
+		_tick_mob()
+	else:
+		_assign_jobs()
+		for worker in workers:
+			worker.tick(tick)
+		if ticks_per_second > 0 and tick % maxi(ticks_per_second * 2, 1) == 0:
+			_retry_unplannable()
 	tick_passed.emit(tick)
 	state_changed.emit()
+
+
+# ---------------------------------------------------------------------------
+# The horror: customers break in and eat the staff
+# ---------------------------------------------------------------------------
+
+## Smashes the windows and lets the mob in. Returns the broken edges (empty when
+## the kitchen has no window to break through).
+func start_mob(count: int) -> Array[Vector3i]:
+	var broken: Array[Vector3i] = []
+	if kitchen == null or kitchen.data == null or count <= 0:
+		return broken
+	var windows := _window_edges()
+	if windows.is_empty():
+		return broken
+	# Prefer windows far from the staff: the mob should have to come in and hunt.
+	windows.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		var sa := _window_score(a)
+		var sb := _window_score(b)
+		if sa != sb:
+			return sa > sb
+		return a.x * 10000 + a.y * 10 + a.z < b.x * 10000 + b.y * 10 + b.z)
+	# One window per customer, cycled when there are more customers than windows.
+	var entry_edges: Array[Vector3i] = []
+	for i in count:
+		var edge: Vector3i = windows[i % windows.size()]
+		if kitchen.is_broken(edge):
+			continue
+		var smashed := kitchen.break_wall_feature(edge)
+		if smashed.is_empty():
+			continue
+		broken.append_array(smashed)
+		entry_edges.append(edge)
+		window_broken.emit(edge)
+	if broken.is_empty():
+		return broken
+	for i in count:
+		var edge: Vector3i = entry_edges[i % entry_edges.size()]
+		var customer := Customer.new()
+		add_child(customer)
+		customer.setup(self, _inside_cell(edge))
+		customers.append(customer)
+	mob_active = true
+	_log("mob: %d customers through %d window(s)" % [customers.size(), entry_edges.size()])
+	mob_started.emit(broken)
+	return broken
+
+
+## Ends the attack (timeout / cleanup): the customers leave, the day can close.
+func stop_mob() -> void:
+	if not mob_active and customers.is_empty():
+		return
+	mob_active = false
+	for customer in customers:
+		customer.despawn()
+	customers.clear()
+	mob_finished.emit()
+
+
+func living_workers() -> Array[Worker]:
+	var out: Array[Worker] = []
+	for worker in workers:
+		if not worker.eaten:
+			out.append(worker)
+	return out
+
+
+## A customer reaches a worker: the worker is gone for the rest of the day.
+func eat_worker(worker: Worker, customer: Customer) -> void:
+	if worker == null or worker.eaten:
+		return
+	var where := worker.cell
+	var home := worker.spawn_cell
+	worker.eaten = true
+	worker.despawn()
+	workers.erase(worker)
+	_eaten_posts[home] = true
+	_log("customer eats a worker at %s" % where)
+	worker_consumed.emit(worker)
+	if living_workers().is_empty():
+		mob_active = false
+		for other in customers:
+			other.despawn()
+		customers.clear()
+		mob_finished.emit()
+
+
+## The staff is back on shift (a new day starts): eaten posts are staffed again.
+func clear_eaten_posts() -> void:
+	if _eaten_posts.is_empty():
+		return
+	_eaten_posts.clear()
+	_sync_workers()
+
+
+## The staff that did not survive the day.
+func eaten_count() -> int:
+	return _eaten_posts.size()
+
+
+func _tick_mob() -> void:
+	if tick % maxi(flee_replan_ticks, 1) == 0:
+		var threats: Array[Vector2i] = []
+		for customer in customers:
+			threats.append(customer.cell)
+		for worker in living_workers():
+			worker.flee_from(threats)
+	for customer in customers:
+		customer.tick(tick)
+
+
+## Every window edge in the map, in a stable order.
+func _window_edges() -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	for key: Vector3i in kitchen.data.walls:
+		if int(kitchen.data.walls[key]) == KitchenLayout.Wall.WINDOW:
+			out.append(key)
+	out.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return a.x * 10000 + a.y * 10 + a.z < b.x * 10000 + b.y * 10 + b.z)
+	return out
+
+
+## How far a window is from the nearest living worker (higher = better entry).
+func _window_score(edge: Vector3i) -> int:
+	var inside := _inside_cell(edge)
+	var best := 1 << 20
+	for worker in living_workers():
+		best = mini(best, absi(worker.cell.x - inside.x) + absi(worker.cell.y - inside.y))
+	return best if best < (1 << 20) else 0
+
+
+## The floor cell just inside a window edge (where the customer climbs in).
+func _inside_cell(edge: Vector3i) -> Vector2i:
+	var cells := KitchenLayout.edge_cells(edge)
+	for c in cells:
+		if kitchen.is_walkable(c):
+			return c
+	return cells[0]
 
 
 ## Test / cutscene helper: advance an exact number of ticks, ignoring real time.
@@ -251,6 +429,7 @@ func pick_up(job: Job, worker: Worker) -> WorldItem:
 		return null
 	items.detach_for_carry(item)
 	item.attach_to(worker.hands(), Vector3(0.0, 0.06, 0.0))
+	item_carried.emit(item, worker)
 	return item
 
 
@@ -267,11 +446,12 @@ func finish_transfer(job: Job) -> void:
 	items.finish_carry(item, job.target_cell, kitchen.surface_height(job.target_cell))
 	item.reserved_by = null
 	job.state = Job.State.DONE
+	item_dropped.emit(item, job.target_cell)
 	_log("carried %s -> %s" % [item.def.id, job.target_cell])
 
 
 ## A produce job finished: consume the inputs, spawn the outputs, run effects.
-func finish_produce(job: Job) -> void:
+func finish_produce(job: Job, worker: Worker = null) -> void:
 	if job.station != null:
 		job.station.busy_by = null
 	var inputs: Variant = gather_inputs(job)
@@ -293,8 +473,10 @@ func finish_produce(job: Job) -> void:
 		out = items.spawn(out_def, cell, payload_for(job, entries), kitchen.surface_height(cell))
 	job.state = Job.State.DONE
 	_log("%s -> %s @ %s" % [job.recipe.display_name, job.recipe.output, cell])
+	work_finished.emit(worker, job)
 	if job.recipe.effect == &"complete_order" and job.order != null:
 		orders.complete(job.order)
+		order_delivered.emit(job.order, cell)
 	if job.deliver_to != Job.NO_CELL and out != null:
 		var follow := Job.new()
 		follow.kind = Job.Kind.TRANSFER
@@ -432,6 +614,8 @@ func _sync_workers() -> void:
 		workers.remove_at(i)
 		worker.despawn()
 	for cell: Vector2i in posts:
+		if _eaten_posts.has(cell):
+			continue
 		if _worker_at(cell) != null:
 			continue
 		var post: FurnitureInstance = posts[cell]

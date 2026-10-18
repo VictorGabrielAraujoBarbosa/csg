@@ -7,6 +7,10 @@ extends Node3D
 ## centre); [member max_slots_per_cell] is the hook for limiting them later.
 
 signal items_changed
+## An item appeared in the world (a recipe produced it, or the world was seeded).
+signal item_spawned(item: WorldItem)
+## An item left the world for good (a recipe consumed it).
+signal item_removed(item: WorldItem)
 
 ## 0 = unlimited (the future capacity limit lives here).
 const MAX_SLOTS_PER_CELL := 0
@@ -45,6 +49,7 @@ func spawn(def: ItemDef, cell: Vector2i, payload: Dictionary, height: float) -> 
 	(_by_cell[cell] as Array).append(item)
 	_layout_cell(cell)
 	items_changed.emit()
+	item_spawned.emit(item)
 	return item
 
 
@@ -58,6 +63,7 @@ func remove(item: WorldItem) -> void:
 		_layout_cell(old)
 	item.queue_free()
 	items_changed.emit()
+	item_removed.emit(item)
 
 
 ## Starts a carry: the item leaves its cell immediately (so the cell re-lays
