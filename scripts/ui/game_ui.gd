@@ -54,6 +54,8 @@ const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_
 @export var menu_controls := "LMB place · RMB sell · R rotate · Esc deselect"
 ## The asset credit line (all kits are Kenney CC0).
 @export var menu_credit := "Kenney CC0 asset kits — building, furniture, food, UI and audio (kenney.nl)"
+## The map the main menu shows off, if the author has saved one.
+const MENU_LAYOUT := "res://resources/layouts/menu_kitchen.txt"
 ## Seconds between attract-loop checks.
 @export var attract_interval := 1.0
 ## Most orders the menu kitchen may have pending at once: keeps the loss rule
@@ -200,6 +202,8 @@ func _ready() -> void:
 	# The menu's showreel needs a kitchen that can cook: lend the shipped venue
 	# the pieces it is missing (taken back by start_game).
 	if not _started:
+		if FileAccess.file_exists(MENU_LAYOUT):
+			kitchen.load_layout(MENU_LAYOUT)
 		_ensure_attract_stock()
 		_attract_clock = 0.0
 	# Keep the developer overlay (hint / job counts / warnings) on top of the
@@ -588,6 +592,9 @@ func start_game(skip_intro := false) -> void:
 	_started = true
 	_menu.visible = false
 	_stop_attract()
+	# Leave the showreel map: the game starts on the venue the author shipped.
+	if kitchen != null and kitchen.layout_file == MENU_LAYOUT:
+		kitchen.load_layout("res://resources/layouts/start_kitchen.txt")
 	if skip_intro or intro == null:
 		_restore_game_ui()
 		return

@@ -637,7 +637,9 @@ func _build_furniture_from_data() -> void:
 	_furniture.clear()
 	for entry in data.furniture:
 		var def := FurnitureCatalog.find(entry.get("id", &""))
-		if def == null:
+		if def == null or def.scene == null:
+			# A def whose prop scene is missing (still being authored) is skipped
+			# rather than breaking the whole kitchen.
 			continue
 		var cell: Vector2i = entry.get("cell", Vector2i.ZERO)
 		var steps: int = entry.get("steps", 0)

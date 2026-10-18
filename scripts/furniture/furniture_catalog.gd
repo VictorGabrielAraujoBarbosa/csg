@@ -116,6 +116,11 @@ static func build() -> Array[FurnitureDef]:
 		["decor"], &"decor", false, "", PROPS_DIR)
 	mascot_yellow.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
 	out.append(mascot_yellow)
+	# The two platforms on display together, behind a rail: unmistakably decor.
+	var shrine := _make("corporate_shrine", "Corporate Shrine", "corporate_shrine.tscn", Vector2i(2, 1), 0,
+		["decor"], &"decor", false, "", PROPS_DIR)
+	shrine.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
+	out.append(shrine)
 	# Stocked versions of the storage pieces: the goods are part of the prop, so
 	# they read at a glance as "this is where ingredients come from".
 	var stocked_shelf := _make("shelf_stocked", "Shelf", "shelf_stocked.tscn", Vector2i(1, 1), 70,

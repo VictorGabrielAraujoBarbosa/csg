@@ -31,5 +31,4 @@ cutting_table 6 4 0
 worker_post 2 4 0
 assembly_table 4 2 0
 worker_post 8 2 0
-mascot_red 7 2 0
-mascot_yellow 7 5 0
+corporate_shrine 7 5 0

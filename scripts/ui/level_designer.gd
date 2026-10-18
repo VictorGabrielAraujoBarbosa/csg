@@ -195,6 +195,12 @@ func _build_panel() -> void:
 	load_button.add_theme_font_size_override("font_size", 13)
 	load_button.pressed.connect(_on_load_pressed)
 	load_row.add_child(load_button)
+	var menu_button := Button.new()
+	menu_button.text = "Save as menu kitchen"
+	menu_button.add_theme_font_size_override("font_size", 13)
+	menu_button.tooltip_text = "Writes menu_kitchen.txt — the map the main menu shows off"
+	menu_button.pressed.connect(_on_menu_map_pressed)
+	load_row.add_child(menu_button)
 	var start_button := Button.new()
 	start_button.text = "Use as start map"
 	start_button.add_theme_font_size_override("font_size", 13)
@@ -305,6 +311,17 @@ func _on_start_map_pressed() -> void:
 	if kitchen.save_layout(path):
 		_name_edit.text = "start_kitchen"
 		_hint("The game now starts from %s" % path)
+		_refresh_files()
+	else:
+		_hint("Could not write %s (exports cannot write into res://)" % path)
+
+
+## Writes the showreel map the main menu loads (see GameUI.MENU_LAYOUT).
+func _on_menu_map_pressed() -> void:
+	var path := Kitchen.LAYOUT_DIR.path_join("menu_kitchen.txt")
+	if kitchen.save_layout(path):
+		_name_edit.text = "menu_kitchen"
+		_hint("The main menu now shows %s" % path)
 		_refresh_files()
 	else:
 		_hint("Could not write %s (exports cannot write into res://)" % path)

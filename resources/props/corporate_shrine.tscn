@@ -1,0 +1,100 @@
+[gd_scene load_steps=10 format=3]
+
+; Corporate Shrine — the two delivery platforms (never named) on display
+; together, so nobody mistakes them for staff.
+;
+; The problem this prop solves: the two mascots used to stand loose in the
+; dining room at full size, and players read them as two more chibis. A worker
+; is a bare toilet at scale_mult 2 (0.90 m tall, 0.63 x 0.95 m). The shrine
+; puts the same characters at 0.6 scale — 0.68 m tall, 0.54 x 0.59 m — on a
+; plinth behind a rail, with a plaque: the visual language of an ornament.
+;
+; Native kit units (FurnitureDef.scale_mult = 2 makes them metres):
+;   plinth       1.00 x 0.06 x 0.45   the low slab (2.00 x 0.12 x 0.90 m)
+;   kerb         0.125 tall x 0.02    front + both sides, on the slab
+;   plaque       0.30 x 0.09 x 0.008  brass, tilted 25 deg back on the kerb
+;   mascots      0.6 scale, 0.33 either side of centre, on the slab
+; The whole piece stays inside x 1.00 / z 0.45 and touches the floor (min y 0),
+; so it measures 2x1 cells and rotates to 1x2.
+;
+; The mascots are the existing mascot_*.tscn scenes, instanced and scaled:
+; their paint (material_override on every mesh *and* the colours baked into the
+; meshes' own surface materials) comes along untouched, which is what survives
+; the kitchen's tint pass — see the header of mascot_red.tscn. The plinth, kerb
+; and plaque are painted the same two-slot way: the colour lives on the BoxMesh
+; (the slot _apply_furniture_tints restores) and is repeated as a
+; material_override (the slot the drag ghost borrows). Material names are
+; shrine_* on purpose: they match no kit material, so a piece tint never
+; recolours the display.
+;
+; Faces +Z, like the kit blueprints: the rail is on the front (+Z) and sides,
+; the back is open.
+
+[ext_resource type="PackedScene" path="res://resources/props/mascot_red.tscn" id="1_red"]
+[ext_resource type="PackedScene" path="res://resources/props/mascot_yellow.tscn" id="2_yellow"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_plinth"]
+resource_name = "shrine_plinth"
+albedo_color = Color(0.152941, 0.164706, 0.192157, 1)
+roughness = 0.7
+
+[sub_resource type="BoxMesh" id="BoxMesh_plinth"]
+material = SubResource("StandardMaterial3D_plinth")
+size = Vector3(1, 0.06, 0.45)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_kerb"]
+resource_name = "shrine_kerb"
+albedo_color = Color(0.423529, 0.454902, 0.501961, 1)
+metallic = 0.25
+roughness = 0.45
+
+[sub_resource type="BoxMesh" id="BoxMesh_kerb_front"]
+material = SubResource("StandardMaterial3D_kerb")
+size = Vector3(1, 0.125, 0.02)
+
+[sub_resource type="BoxMesh" id="BoxMesh_kerb_side"]
+material = SubResource("StandardMaterial3D_kerb")
+size = Vector3(0.02, 0.125, 0.43)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_plaque"]
+resource_name = "shrine_plaque"
+albedo_color = Color(0.788235, 0.647059, 0.294118, 1)
+metallic = 0.55
+roughness = 0.3
+
+[sub_resource type="BoxMesh" id="BoxMesh_plaque"]
+material = SubResource("StandardMaterial3D_plaque")
+size = Vector3(0.3, 0.09, 0.008)
+
+[node name="CorporateShrine" type="Node3D"]
+
+[node name="Plinth" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0)
+material_override = SubResource("StandardMaterial3D_plinth")
+mesh = SubResource("BoxMesh_plinth")
+
+[node name="KerbFront" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1225, 0.215)
+material_override = SubResource("StandardMaterial3D_kerb")
+mesh = SubResource("BoxMesh_kerb_front")
+
+[node name="KerbLeft" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.49, 0.1225, -0.01)
+material_override = SubResource("StandardMaterial3D_kerb")
+mesh = SubResource("BoxMesh_kerb_side")
+
+[node name="KerbRight" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.49, 0.1225, -0.01)
+material_override = SubResource("StandardMaterial3D_kerb")
+mesh = SubResource("BoxMesh_kerb_side")
+
+[node name="Plaque" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9063078, -0.4226183, 0, 0.4226183, 0.9063078, 0, 0.215, 0.2)
+material_override = SubResource("StandardMaterial3D_plaque")
+mesh = SubResource("BoxMesh_plaque")
+
+[node name="MascotRed" parent="." instance=ExtResource("1_red")]
+transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, 0.23622, 0.06, -0.17175)
+
+[node name="MascotYellow" parent="." instance=ExtResource("2_yellow")]
+transform = Transform3D(0.6, 0, 0, 0, 0.6, 0, 0, 0, 0.6, -0.42378, 0.06, -0.17175)
