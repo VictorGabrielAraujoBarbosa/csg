@@ -173,6 +173,9 @@ func _ready() -> void:
 			" match=", furniture_match)
 	if "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
 		kitchen.paint_floor_tint(Vector2i(6, 3), Color(0.95, 0.35, 0.35))
+		# The pixel samples check floor rendering, so the camera-facing wall
+		# hiding is switched off for them (it has its own screenshots).
+		kitchen.hide_near_walls = false
 	if "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
 	if "--item-showcase" in OS.get_cmdline_user_args():
@@ -805,13 +808,12 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	var start_ids: Array[StringName] = []
 	for start_entry in kitchen.data.furniture:
 		start_ids.append(start_entry.get("id", &""))
-	_expect(start_ids.has(&"stove") and start_ids.has(&"worker_post") and start_ids.has(&"counter")
-		and start_ids.has(&"sink") and start_ids.has(&"assembly_table"),
+	# The authored start map is a starting point, not a finished kitchen: the
+	# gate is expected to send the player shopping for the rest (a sink to wash
+	# trays, storage to fetch ingredients from).
+	_expect(start_ids.has(&"stove") and start_ids.has(&"assembly_table") and start_ids.has(&"worker_post"),
 		"designer: the start map ships a cooking line and staff")
-	# The authored start map ships a complete working kitchen (storage included):
-	# the "buy your first storage" lesson only applies to a bare shell.
-	_expect(start_ids.has(&"shelf_stocked") and start_ids.has(&"fridge"),
-		"designer: the authored start kitchen ships both storages")
+	_expect(start_ids.has(&"cutting_table"), "designer: the start map has a prep surface")
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
