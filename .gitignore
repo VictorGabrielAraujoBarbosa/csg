@@ -2,5 +2,9 @@
 .godot/
 /android/
 #raw bin
-assets
+# The Kenney kits and the music ship with the game. The kit packs are large, so
+# only the music (a few MB, CC BY 4.0 — attribution required) is tracked for now;
+# drop the assets/* line to track every kit too.
+assets/*
+!assets/music/
 *.import
