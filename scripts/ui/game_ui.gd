@@ -18,6 +18,10 @@ const DAY_ANCHOR_RIGHT := 0.66
 const CORNER_RADIUS := 26.0
 ## Time runs at a third speed while the customers are inside.
 const HORROR_SLOW_MOTION := 0.35
+## The three tracks the demo ships with, one per mood.
+const MUSIC_BUILD := "res://assets/music/Airport%20Lounge - build.mp3"
+const MUSIC_DAY := "res://assets/music/District%20Four - work.mp3"
+const MUSIC_HORROR := "res://assets/music/Classic%20Horror%201 - lose.mp3"
 const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_000.ogg"
 
 @export var day: DayController
@@ -401,6 +405,7 @@ func _on_phase(phase: int) -> void:
 			_summary.visible = false
 			_start_button.visible = true
 			_day_label.text = "Day %d — build" % (day.day + 1 if day != null else 1)
+			_play_music(MUSIC_BUILD, 1.2)
 			if camera_rig != null:
 				camera_rig.set_distance(BUILD_DISTANCE)
 			if placer != null:
@@ -418,6 +423,7 @@ func _on_phase(phase: int) -> void:
 			_clear_cards()
 			if day != null:
 				_day_label.text = "Day %d — service" % day.day
+			_play_music(MUSIC_DAY, 1.2)
 			if camera_rig != null:
 				camera_rig.set_distance(DAY_DISTANCE)
 			if placer != null:
@@ -599,6 +605,7 @@ func _on_mob_started(edges: Array) -> void:
 	_start_button.visible = false
 	cutscene.begin()
 	cutscene.set_slow_motion(service, HORROR_SLOW_MOTION)
+	_play_music(MUSIC_HORROR, 0.4)
 	_play(GLASS_SOUND)
 	await cutscene.letterbox(true, 0.4)
 	if not edges.is_empty():
@@ -649,7 +656,8 @@ func _refresh_money() -> void:
 	if _detail_price != null:
 		var def: FurnitureDef = placer.current_def() if placer != null else null
 		if def != null and def.cost > 0 and not service.orders.can_afford(def.cost):
-			_catalog_status.text = "Not enough money for the %s" % def.display_name
+			_catalog_status.text = "Need $%d more for the %s" % [
+				def.cost - service.orders.money, def.display_name]
 		elif _catalog_status.text.begins_with("Not enough money"):
 			_catalog_status.text = ""
 
@@ -657,6 +665,19 @@ func _refresh_money() -> void:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+## Music lives on the fx scene's audio bank (it may not exist in stripped runs).
+func _play_music(track: String, fade := 1.0) -> void:
+	var bank := _audio_bank()
+	if bank != null and bank.has_method("play_music"):
+		bank.call("play_music", track, fade)
+
+
+func _audio_bank() -> Node:
+	if world == null:
+		return null
+	return world.get_node_or_null("Fx/AudioBank")
+
 
 func _play(path: String) -> void:
 	if _players.is_empty():

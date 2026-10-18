@@ -40,10 +40,10 @@ static func _build() -> void:
 	_by_id.clear()
 	# Base ingredients (infinite from storage in this version).
 	_add("bread", "Bread", "bread.glb", true)
-	_add("patty_raw", "Raw Patty", "meat-patty.glb", true)
-	_add("lettuce", "Lettuce", "cabbage.glb", true)
-	_add("tomato", "Tomato", "tomato.glb", true, &"", {"scale": 1.2})
-	_add("cheese", "Cheese", "cheese.glb", true)
+	_add("patty_raw", "Raw Patty", "meat-patty.glb", true, &"cold")
+	_add("lettuce", "Lettuce", "cabbage.glb", true, &"cold")
+	_add("tomato", "Tomato", "tomato.glb", true, &"cold", {"scale": 1.2})
+	_add("cheese", "Cheese", "cheese.glb", true, &"cold")
 	# No potato in the kit: the coconut is the one plain brown lump (at the
 	# standard food scale it renders ~18 cm, next to a portion of fries).
 	_add("potato", "Potato", "coconut.glb", true)

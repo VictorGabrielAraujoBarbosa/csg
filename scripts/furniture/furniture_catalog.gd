@@ -82,9 +82,9 @@ static func build() -> Array[FurnitureDef]:
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
 	# with none of these cannot cook at all.
 	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", true,
-		"Storage. Every ingredient is fetched from a storage station."))
+		"Dry storage: bread, potatoes and sauce are fetched from here."))
 	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"], &"storage", true,
-		"Storage, and it keeps things cold. Without storage, nothing can be cooked."))
+		"Cold storage: meat, cheese and salads are fetched from here. A kitchen needs both."))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
 		["prep", "surface"], 0.9, "Prep surface with a board and knife: salads and cheese slices."))

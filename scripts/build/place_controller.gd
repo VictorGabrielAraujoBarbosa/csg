@@ -43,8 +43,12 @@ var _valid := false
 var _last_cells: Array[Vector2i] = []
 var _last_valid := false
 ## Drag-and-drop state: a placed piece being rearranged.
+## Nothing is selected until a shop card is clicked; placing clears it again.
+var has_selection := false
 var _grabbed: FurnitureInstance = null
 var _grab_visual := Vector3.ZERO
+## Price tag floating over the placement ghost.
+var _cost_label: Label3D
 ## The ghost lags behind the mouse like a heavy object.
 var _ghost_visual := Vector3.ZERO
 var _ghost_visual_ready := false
@@ -73,9 +77,18 @@ func _ready() -> void:
 
 
 func current_def() -> FurnitureDef:
-	if catalog.is_empty():
+	if not has_selection or catalog.is_empty():
 		return null
 	return catalog[posmod(index, catalog.size())]
+
+
+## Drops the current selection (after a placement, a drop, or on Esc).
+func clear_selection() -> void:
+	if not has_selection:
+		return
+	has_selection = false
+	_hide()
+	selection_changed.emit("")
 
 
 ## Human-readable summary of the current selection (designer status line).
@@ -91,6 +104,7 @@ func selection_label() -> String:
 func select_by_id(id: StringName) -> void:
 	for i in catalog.size():
 		if catalog[i].id == id:
+			has_selection = true
 			_select(i)
 			return
 
@@ -125,6 +139,8 @@ func _process(delta: float) -> void:
 func _update_ghost(delta: float) -> void:
 	var def := current_def()
 	if def == null:
+		if is_instance_valid(_ghost):
+			_ghost.visible = false
 		return
 	if _ghost == null or _ghost.def != def:
 		_rebuild_ghost()
@@ -141,6 +157,7 @@ func _update_ghost(delta: float) -> void:
 	_ghost.rotation_degrees = Vector3(0.0, rot_steps * 90.0 + def.yaw_offset_deg, 0.0)
 	_ghost.set_material_override_all(_ghost_valid_mat if _valid else _ghost_invalid_mat)
 	_update_highlights(def)
+	_update_cost_label(def)
 
 
 ## The grabbed piece hovers and lags behind the mouse while being carried.
@@ -173,6 +190,7 @@ func _drop_grab() -> void:
 		kitchen.refresh_furniture_tints(_grabbed)
 		_grabbed = null
 		_last_cells.clear()
+		clear_selection()
 	else:
 		# Invalid spot: keep holding it (red) until the player finds room.
 		pass
@@ -193,6 +211,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		match key.physical_keycode:
+			KEY_ESCAPE:
+				if _grabbed != null:
+					_cancel_grab()
+				clear_selection()
 			KEY_R:
 				rot_steps = (rot_steps + 1) % 4
 				_last_cells.clear()
@@ -279,6 +301,31 @@ func _rebuild_ghost() -> void:
 	add_child(_ghost)
 
 
+## A floating "$120" over the ghost, red when the purse cannot cover it.
+func _update_cost_label(def: FurnitureDef) -> void:
+	if def.cost <= 0:
+		if _cost_label != null:
+			_cost_label.visible = false
+		return
+	var label := _ensure_cost_label()
+	var affordable := service == null or service.orders.can_afford(def.cost)
+	label.visible = true
+	label.text = "$%d" % def.cost
+	label.modulate = Color(1, 1, 1) if affordable else Color(1.0, 0.45, 0.4)
+	label.position = _ghost_visual + Vector3(0.0, 1.35, 0.0)
+
+
+func _ensure_cost_label() -> Label3D:
+	if _cost_label == null or not is_instance_valid(_cost_label):
+		_cost_label = Label3D.new()
+		_cost_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_cost_label.font_size = 42
+		_cost_label.outline_size = 10
+		_cost_label.no_depth_test = true
+		add_child(_cost_label)
+	return _cost_label
+
+
 func _update_highlights(def: FurnitureDef) -> void:
 	var cells := def.cells(_hover_cell, rot_steps)
 	if cells == _last_cells and _valid == _last_valid:
@@ -300,6 +347,8 @@ func _hide() -> void:
 	_has_hover = false
 	if is_instance_valid(_ghost):
 		_ghost.visible = false
+	if _cost_label != null:
+		_cost_label.visible = false
 	_last_cells.clear()
 	for child in _highlight_root.get_children():
 		child.queue_free()

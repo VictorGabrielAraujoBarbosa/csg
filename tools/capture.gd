@@ -259,6 +259,7 @@ func _run_arc(scene: Node) -> void:
 	day.day = 0
 	# The player's shopping list: storage first, then the fryer for day 2.
 	kitchen.place_furniture(FurnitureCatalog.find(&"shelf"), Vector2i(1, 2), 0)
+	kitchen.place_furniture(FurnitureCatalog.find(&"fridge"), Vector2i(7, 3), 0)
 	service.rebuild_stations()
 	var won: Array[int] = []
 	var lost_on := 0

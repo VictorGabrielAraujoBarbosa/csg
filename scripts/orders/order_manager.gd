@@ -15,7 +15,7 @@ signal warning(text: String)
 signal changed
 
 @export var dish_id: StringName = &"burger"
-@export var reward_per_order := 25
+@export var reward_per_order := 30
 @export var max_pending := 5
 ## 0 = no time limit (the prototype has none).
 @export var time_limit_ticks := 0
