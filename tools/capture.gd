@@ -689,6 +689,27 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 	_expect(window_piece != null, "the native window piece loads")
 	if window_piece != null:
 		window_piece.free()
+	# --- level designer I/O: blank maps, save, load ---
+	var blank := KitchenLayout.blank(Vector2i(6, 5))
+	_expect(blank.floors.size() == 30, "designer: a blank map is all floor (30 cells)")
+	_expect(blank.get_wall_key(KitchenLayout.edge_key(Vector2i(0, -1), KitchenLayout.DIR_Z)) == KitchenLayout.Wall.SOLID,
+		"designer: blank maps derive their outer walls")
+	_expect(blank.get_wall_key(KitchenLayout.edge_key(Vector2i(2, 2), KitchenLayout.DIR_Z)) == KitchenLayout.Wall.OPEN,
+		"designer: and the inside of a blank map is open")
+	var designer_floors := data.floors.size()
+	var designer_walls := data.walls.size()
+	var designer_furniture := data.furniture.size()
+	var save_path := "user://maps/_designer_test.txt"
+	_expect(kitchen.save_layout(save_path), "designer: the current map saves to disk")
+	_expect(kitchen.load_layout("res://resources/layouts/start_kitchen.txt"), "designer: the start map loads")
+	_expect(kitchen.data.points.size() == 2, "designer: the start map ships intake and delivery points")
+	_expect(kitchen.data.furniture.is_empty(), "designer: the start map is an empty shell to furnish")
+	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
+	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
+		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
+	_expect(kitchen.load_layout("res://resources/layouts/demo_kitchen.txt"), "designer: back to the demo kitchen")
+	data = kitchen.data  # loading replaced the layout object the tests hold on to
+	_expect(kitchen.furniture_at(Vector2i(3, 1)) != null, "designer: the demo furniture is back")
 	_expect(kitchen.paint_wall(Vector2i(12, 9), KitchenLayout.DIR_X, KitchenLayout.Wall.SOLID), "paint an interior wall")
 	_expect(kitchen.paint_wall_tint(Vector2i(12, 9), KitchenLayout.DIR_X, Color(0.9, 0.6, 0.3)), "paint a wall tint")
 	_expect((kitchen.data.wall_tints.get(KitchenLayout.edge_key(Vector2i(12, 9), KitchenLayout.DIR_X), Color.WHITE) as Color)
