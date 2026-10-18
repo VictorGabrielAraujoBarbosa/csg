@@ -62,7 +62,8 @@ const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_
 ## Pieces the menu lends a kitchen that cannot cook yet. The shipped venue is
 ## missing its storage and sink (that is the day-1 lesson), so the showreel
 ## needs them; they are removed again by [method start_game].
-@export var attract_stock: Array[StringName] = [&"shelf", &"fridge", &"sink"]
+@export var attract_stock: Array[StringName] = [
+	&"shelf", &"fridge", &"sink", &"worker_post", &"worker_post"]
 
 @export_group("Ending card")
 ## The farewell card, shown once after the horror sequence's DAY LOST.
@@ -696,30 +697,58 @@ func _place_attract_piece(def: FurnitureDef) -> void:
 		_attract_pieces.append(inst)
 
 
-## Somewhere sensible for a lent piece: a free cell that touches the existing
-## furniture, nearest the cooking line first; any free cell as a fallback.
+## Somewhere sensible for a lent piece: the corner of the room farthest from the
+## cooking line, clustering with the other lent pieces. Cells beside a station are
+## refused outright — a lent fridge parked on the stove's stand tile is what made
+## the showreel unable to finish a patty.
 func _find_attract_cell(def: FurnitureDef) -> Vector2i:
 	if kitchen.data == null:
 		return ATTRACT_NO_CELL
 	var bounds := kitchen.data.floor_bounds()
 	var focus := _cooking_cell()
 	var best := ATTRACT_NO_CELL
-	var best_score := 1 << 30
+	var best_score := -(1 << 30)
 	var fallback := ATTRACT_NO_CELL
 	for z in range(bounds.position.y, bounds.end.y):
 		for x in range(bounds.position.x, bounds.end.x):
 			var cell := Vector2i(x, z)
 			if not kitchen.can_place(def, cell, 0):
 				continue
+			if _beside_a_station(cell):
+				continue
 			if fallback == ATTRACT_NO_CELL:
 				fallback = cell
-			if not _touches_furniture(cell):
-				continue
-			var score := absi(cell.x - focus.x) + absi(cell.y - focus.y)
-			if score < best_score:
+			# Farthest from the cooking line, and next to what is already lent.
+			var score := absi(cell.x - focus.x) + absi(cell.y - focus.y) * 2
+			if _touches_attract_stock(cell):
+				score += 1000
+			if score > best_score:
 				best_score = score
 				best = cell
 	return best if best != ATTRACT_NO_CELL else fallback
+
+
+## True when a cell borders any station (or a piece on a station's cell), which
+## is exactly where a worker needs to stand to use it.
+func _beside_a_station(cell: Vector2i) -> bool:
+	if service == null:
+		return false
+	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var neighbour: Vector2i = cell + offset
+		for station in service.stations:
+			if station.cells.has(neighbour):
+				return true
+	return false
+
+
+## True when a cell touches a piece this loop has already lent.
+func _touches_attract_stock(cell: Vector2i) -> bool:
+	for inst in _attract_pieces:
+		if not is_instance_valid(inst):
+			continue
+		if inst.anchor.distance_squared_to(cell) <= 2:
+			return true
+	return false
 
 
 func _touches_furniture(cell: Vector2i) -> bool:

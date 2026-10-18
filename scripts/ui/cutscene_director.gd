@@ -63,6 +63,9 @@ extends Node
 ## Frames after [method begin] during which presses are ignored, so the click
 ## that started the cutscene cannot also skip it.
 @export var skip_grace_frames := 2
+## Require Enter (or keypad Enter) to skip, instead of any key or click: a stray
+## click while a card is on screen used to cut the sequence short.
+@export var skip_requires_enter := true
 
 ## True between [method begin] and [method finish].
 var active := false
@@ -508,6 +511,12 @@ func _input(event: InputEvent) -> void:
 		var key := event as InputEventKey
 		if not key.pressed or key.echo:
 			return
+		if skip_requires_enter and key.physical_keycode != KEY_ENTER \
+				and key.physical_keycode != KEY_KP_ENTER:
+			return
+	elif skip_requires_enter:
+		# Only Enter skips: a stray click while reading a card should not end it.
+		return
 	elif event is InputEventMouseButton:
 		if not (event as InputEventMouseButton).pressed:
 			return
