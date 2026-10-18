@@ -528,6 +528,7 @@ func finish_transfer(job: Job) -> void:
 	# order's job can take it off the station and the consumer starves.
 	item.reserved_by = _landing_holder(job)
 	job.state = Job.State.DONE
+	_release_held_items(job)
 	item_dropped.emit(item, job.target_cell)
 	_log("carried %s -> %s" % [item.def.id, job.target_cell])
 
@@ -573,6 +574,7 @@ func finish_produce(job: Job, worker: Worker = null) -> void:
 		# shareable between orders (tagging them would lock the pantry per order).
 		pass  # BISECT: tagging disabled
 	job.state = Job.State.DONE
+	_release_held_items(job)
 	_log("%s -> %s @ %s" % [job.recipe.display_name, job.recipe.output, cell])
 	work_finished.emit(worker, job)
 	if job.recipe.effect == &"complete_order" and job.order != null:
@@ -592,6 +594,17 @@ func finish_produce(job: Job, worker: Worker = null) -> void:
 
 
 ## A worker gives up on a job (no path, item gone): warn, cancel, re-plan.
+## A finished job lets go of everything it was holding. Without this the slices
+## a burger did not use stayed reserved for the burger that just completed, so
+## the next order planned a whole new cheese wheel instead of taking one.
+func _release_held_items(job: Job) -> void:
+	if job == null:
+		return
+	for item in items.items:
+		if item.reserved_by == job:
+			item.reserved_by = null
+
+
 func fail_job(job: Job, reason: String) -> void:
 	if job == null:
 		return
