@@ -34,6 +34,7 @@ stove 3 1 0
 sink 4 1 0
 counter 5 1 0
 fridge 6 1 0
+shelf 1 2 0
 assembly_table 9 4 0
 worker_post 1 4 0 *=e8b84b
 worker_post 1 5 0 *=7fd18a

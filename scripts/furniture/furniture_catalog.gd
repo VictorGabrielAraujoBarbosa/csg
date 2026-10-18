@@ -81,10 +81,8 @@ static func build() -> Array[FurnitureDef]:
 		"Prep surface: salads and cheese slices are made here."))
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
 	# with none of these cannot cook at all.
-	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", true,
-		"Dry storage: bread, potatoes and sauce are fetched from here."))
-	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["storage", "cold"], &"storage", true,
-		"Cold storage: meat, cheese and salads are fetched from here. A kitchen needs both."))
+	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"]))
+	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"]))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
 		["prep", "surface"], 0.9, "Prep surface with a board and knife: salads and cheese slices."))
@@ -111,16 +109,19 @@ static func build() -> Array[FurnitureDef]:
 	# Stocked versions of the storage pieces: the goods are part of the prop, so
 	# they read at a glance as "this is where ingredients come from".
 	var stocked_shelf := _make("shelf_stocked", "Shelf", "shelf_stocked.tscn", Vector2i(1, 1), 70,
-		["storage"], &"storage", true, "Dry storage with bread on the shelves: potatoes, bread and sauce.", PROPS_DIR)
+		["storage"], &"storage", true, "Dry storage with bread on the shelves: potatoes, bread and sauce. Cold goods need a fridge.", PROPS_DIR)
 	stocked_shelf.surface_override = 1.70
+	stocked_shelf.icon_path = ISOMETRIC_DIR + "bookcaseClosed_NE.png"
 	out.append(stocked_shelf)
 	var stocked_fridge := _make("fridge_stocked", "Fridge", "fridge_stocked.tscn", Vector2i(1, 1), 150,
-		["storage", "cold"], &"storage", true, "Cold storage with goods on top: meat, cheese and salads.", PROPS_DIR)
+		["cold"], &"storage", true, "Cold storage with goods on top: meat, cheese and salads. A kitchen needs a shelf as well.", PROPS_DIR)
 	stocked_fridge.surface_override = 1.84
+	stocked_fridge.icon_path = ISOMETRIC_DIR + "kitchenFridge_NE.png"
 	out.append(stocked_fridge)
 	var dressed := _make("table_dressed", "Dressed Table", "table_dressed.tscn", Vector2i(2, 1), 90,
 		["dining", "surface"], &"decor", false, "", PROPS_DIR)
 	dressed.surface_override = 0.65
+	dressed.icon_path = ISOMETRIC_DIR + "table_NE.png"
 	out.append(dressed)
 	return out
 
@@ -130,7 +131,7 @@ static func build() -> Array[FurnitureDef]:
 static func _make_prop(id: String, name: String, file: String, footprint: Vector2i, cost: int,
 		tags: Array, surface: float, desc := "") -> FurnitureDef:
 	var def := _make(id, name, file, footprint, cost, tags, &"surfaces", true, desc, PROPS_DIR)
-	def.icon_path = ISOMETRIC_DIR + "kitchenCabinet_NE.png"  # stand-in until props render icons
+	def.icon_path = ISOMETRIC_DIR + "kitchenCabinet_NE.png"  # the props are built on a cabinet
 	def.surface_override = surface
 	return def
 

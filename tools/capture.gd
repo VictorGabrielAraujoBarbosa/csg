@@ -951,10 +951,20 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		var shop_ids: Array[StringName] = []
 		for def in FurnitureCatalog.shop_items():
 			shop_ids.append(def.id)
-		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post", &"shelf", &"fridge"]:
+		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post", &"shelf_stocked", &"fridge_stocked"]:
 			_expect(shop_ids.has(wanted), "shop: %s is on sale" % wanted)
 		_expect(not shop_ids.has(&"plant") and not shop_ids.has(&"sofa") and not shop_ids.has(&"trash")
 			and not shop_ids.has(&"table_round"), "shop: decor and functionless pieces are not on sale")
+		_expect(not shop_ids.has(&"shelf") and not shop_ids.has(&"fridge"),
+			"shop: the plain kit storage pieces are decor (the stocked props are the ones on sale)")
+		var shelf_def := FurnitureCatalog.find(&"shelf_stocked")
+		var fridge_def := FurnitureCatalog.find(&"fridge_stocked")
+		_expect(shelf_def != null and shelf_def.has_tag(&"storage") and not shelf_def.has_tag(&"cold"),
+			"storage split: the shelf is dry storage only")
+		_expect(fridge_def != null and fridge_def.has_tag(&"cold") and not fridge_def.has_tag(&"storage"),
+			"storage split: the fridge is cold storage only (so a shelf is needed too)")
+		_expect(shelf_def != null and not shelf_def.icon_path.is_empty() and load(shelf_def.icon_path) != null,
+			"props: the stocked shelf has a real icon (no blank shop card)")
 		_expect(FurnitureCatalog.shop_categories().size() >= 3, "shop: the pieces are grouped into categories")
 		var cutting := FurnitureCatalog.find(&"cutting_table")
 		_expect(cutting != null and cutting.shop, "props: the composed cutting table is a shop item")
