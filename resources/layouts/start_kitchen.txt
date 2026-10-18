@@ -1,16 +1,16 @@
                                  
                                  
-  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
-  |. . . . . . . .|. . . . . .|  
-  +   +w+w+       + +w+w+     +  
+  +-+-+w+w+-+-+-+-+-+w+w+-+-+-+  
   |. . . . . . . .|. . . . . .|  
   +               +           +  
   |. . . . . . . .|. . . . . .|  
-  + +             +           +  
-  |.w. . . . . . .|. . . . . .|  
-  + +             +           +  
-  |.w. . . . . . .|. . . . . .d  
-  + +             +           +  
+  +               +           +  
+  |. . . . . . . .|. . . . . .|  
+  +               +           +  
+  w. . . . . . . .|. . . . . .|  
+  +               +           +  
+  w. . . . . . . .|. . . . . .d  
+  +               +           +  
   |. . . . . . . .d. . . . . .d  
   +               +           +  
   |. . . . . . . .d. . . . . .|  
@@ -28,20 +28,21 @@
                                  
                                  
 [colors]
-1 1 9ea8b8
-2 1 9ea8b8
-3 1 9ea8b8
-4 1 9ea8b8
-5 1 9ea8b8
-6 1 9ea8b8
+2 2 9ea8b8
+3 2 9ea8b8
+4 2 9ea8b8
+5 2 9ea8b8
+6 2 9ea8b8
+7 2 9ea8b8
 [points]
-pickup 2 2
-delivery 12 4
+pickup 3 3
+delivery 13 5
 [furniture]
-counter 2 1 0
-stove 3 1 0
-counter 4 1 0
-sink 5 1 0
-assembly_table 2 4 0
-shelf 1 1 0
-worker_post 1 2 0
+shelf 2 2 0
+counter 3 2 0
+stove 4 2 0
+counter 5 2 0
+sink 6 2 0
+assembly_table 3 5 0
+worker_post 2 3 0
+worker_post 2 7 0

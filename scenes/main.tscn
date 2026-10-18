@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://scripts/ui/game_ui.gd" id="10_ui"]
 [ext_resource type="Script" path="res://scripts/ui/level_designer.gd" id="11_designer"]
 [ext_resource type="Script" path="res://scripts/ui/cutscene_director.gd" id="12_cutscene"]
+[ext_resource type="PackedScene" path="res://scenes/fx.tscn" id="13_fx"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.22, 0.23, 0.26, 1)
@@ -74,6 +75,10 @@ kitchen = NodePath("../Kitchen")
 script = ExtResource("9_day")
 service = NodePath("../Service")
 kitchen = NodePath("../Kitchen")
+
+[node name="Fx" parent="World" instance=ExtResource("13_fx")]
+service_path = NodePath("../../Service")
+kitchen_path = NodePath("../../Kitchen")
 
 [node name="UI" type="CanvasLayer" parent="."]
 script = ExtResource("10_ui")

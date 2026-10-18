@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/fx/vfx.gd" id="1_vfx"]
+[ext_resource type="Script" path="res://scripts/fx/audio_bank.gd" id="2_audio"]
+
+[node name="Fx" type="Node3D"]
+
+[node name="Vfx" type="Node3D" parent="."]
+script = ExtResource("1_vfx")
+service_path = NodePath("../../Service")
+kitchen_path = NodePath("../../Kitchen")
+audio_path = NodePath("../AudioBank")
+
+[node name="AudioBank" type="Node3D" parent="."]
+script = ExtResource("2_audio")
+service_path = NodePath("../../Service")
+kitchen_path = NodePath("../../Kitchen")
