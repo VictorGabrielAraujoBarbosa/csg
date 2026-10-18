@@ -318,6 +318,11 @@ Kenney CC0 kits: [Building Kit](https://kenney.nl/assets/building-kit),
 colouring and the checkerboard are runtime material tints, dish photos are the food kit's
 64×64 preview renders and catalog icons are the furniture kit's isometric renders.
 
+## Credits
+
+Kenney CC0 asset kits for art, UI and sound effects; music by Kevin MacLeod (incompetech.com),
+CC BY 4.0. Full texts in [CREDITS.md](CREDITS.md).
+
 ## Roadmap
 
 1. ~~Grid, authored maps, furniture placement, live map editor, colouring~~ ✅

@@ -55,7 +55,7 @@ const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_
 ## The controls reminder on the menu card.
 @export var menu_controls := "LMB place · RMB sell · R rotate · Esc deselect"
 ## The asset credit line (all kits are Kenney CC0).
-@export var menu_credit := "Kenney CC0 asset kits — building, furniture, food, UI and audio (kenney.nl)"
+@export var menu_credit := "Kenney CC0 asset kits (kenney.nl) · Music: Kevin MacLeod (incompetech.com) — CC BY 4.0"
 ## The map the main menu shows off, if the author has saved one.
 const MENU_LAYOUT := "res://resources/layouts/menu_kitchen.txt"
 ## Seconds between attract-loop checks.
