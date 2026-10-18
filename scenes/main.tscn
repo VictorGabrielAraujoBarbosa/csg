@@ -1,19 +1,47 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene format=3 uid="uid://c7t7544cea13k"]
 
-[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
-[ext_resource type="Script" path="res://scripts/grid/kitchen.gd" id="2_kitchen"]
-[ext_resource type="Script" path="res://scripts/camera_rig.gd" id="3_rig"]
-[ext_resource type="Script" path="res://scripts/build/place_controller.gd" id="4_place"]
-[ext_resource type="Script" path="res://scripts/render/look_config.gd" id="5_look"]
-[ext_resource type="Script" path="res://scripts/build/map_paint_controller.gd" id="6_paint"]
-[ext_resource type="Script" path="res://scripts/service/service.gd" id="7_service"]
-[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="8_hud"]
-[ext_resource type="Script" path="res://scripts/game/day_controller.gd" id="9_day"]
-[ext_resource type="Script" path="res://scripts/ui/game_ui.gd" id="10_ui"]
-[ext_resource type="Script" path="res://scripts/ui/level_designer.gd" id="11_designer"]
-[ext_resource type="Script" path="res://scripts/ui/cutscene_director.gd" id="12_cutscene"]
+[ext_resource type="Script" uid="uid://c6k6jadwydr26" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://bm2pyleq2q5dv" path="res://scripts/grid/kitchen.gd" id="2_kitchen"]
+[ext_resource type="Script" uid="uid://f5n8eguaxpjr" path="res://scripts/camera_rig.gd" id="3_rig"]
+[ext_resource type="Script" uid="uid://cp2kek55850v5" path="res://scripts/build/place_controller.gd" id="4_place"]
+[ext_resource type="Script" uid="uid://svcmrvqcvcmc" path="res://scripts/render/look_config.gd" id="5_look"]
+[ext_resource type="Script" uid="uid://bylw3x4b6qrxj" path="res://scripts/build/map_paint_controller.gd" id="6_paint"]
+[ext_resource type="Script" uid="uid://by52x60ij2run" path="res://scripts/service/service.gd" id="7_service"]
+[ext_resource type="Script" uid="uid://cc16aobv4ok23" path="res://scripts/ui/hud.gd" id="8_hud"]
+[ext_resource type="Script" uid="uid://cb5jxmgco5ifv" path="res://scripts/game/day_controller.gd" id="9_day"]
+[ext_resource type="Script" uid="uid://cljh727ptkycl" path="res://scripts/ui/game_ui.gd" id="10_ui"]
+[ext_resource type="Script" uid="uid://bdlxju6l4a74c" path="res://scripts/ui/level_designer.gd" id="11_designer"]
+[ext_resource type="Script" uid="uid://db7r6qclnsnii" path="res://scripts/ui/cutscene_director.gd" id="12_cutscene"]
 [ext_resource type="PackedScene" path="res://scenes/fx.tscn" id="13_fx"]
 [ext_resource type="PackedScene" path="res://scenes/roamers.tscn" id="14_roamers"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_a8y0u"]
+sky_top_color = Color(0.58, 0.62, 0.68, 1)
+sky_horizon_color = Color(0.8, 0.82, 0.85, 1)
+ground_bottom_color = Color(0.3, 0.31, 0.34, 1)
+ground_horizon_color = Color(0.8, 0.82, 0.85, 1)
+
+[sub_resource type="Sky" id="Sky_jkv2x"]
+sky_material = SubResource("ProceduralSkyMaterial_a8y0u")
+
+[sub_resource type="Environment" id="Environment_jbj1t"]
+background_mode = 2
+sky = SubResource("Sky_jkv2x")
+ambient_light_source = 3
+ambient_light_color = Color(0.86, 0.87, 0.9, 1)
+ambient_light_sky_contribution = 0.45
+ambient_light_energy = 0.85
+tonemap_mode = 3
+tonemap_exposure = 0.95
+ssao_enabled = true
+ssao_radius = 1.4
+ssao_intensity = 3.5
+glow_enabled = true
+glow_intensity = 0.25
+glow_hdr_threshold = 1.1
+adjustment_enabled = true
+adjustment_contrast = 1.1
+adjustment_saturation = 1.1
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.22, 0.23, 0.26, 1)
@@ -21,91 +49,83 @@ albedo_color = Color(0.22, 0.23, 0.26, 1)
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 size = Vector2(200, 200)
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=646684907]
 script = ExtResource("1_main")
 
-[node name="World" type="SubViewport" parent="."]
+[node name="World" type="SubViewport" parent="." unique_id=52805954]
 size = Vector2i(1280, 720)
 render_target_update_mode = 4
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="World"]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="World" unique_id=359124795]
+environment = SubResource("Environment_jbj1t")
 script = ExtResource("5_look")
 
-[node name="Sun" type="DirectionalLight3D" parent="World"]
-rotation_degrees = Vector3(-55, -40, 0)
+[node name="Sun" type="DirectionalLight3D" parent="World" unique_id=1318553558]
+transform = Transform3D(0.76604444, 0.52654076, -0.3686878, 0, 0.57357645, 0.81915206, 0.6427876, -0.62750685, 0.43938506, 0, 0, 0)
 light_energy = 0.35
-shadow_enabled = false
 
-[node name="Fill" type="DirectionalLight3D" parent="World"]
-rotation_degrees = Vector3(-35, 145, 0)
+[node name="Fill" type="DirectionalLight3D" parent="World" unique_id=2115793207]
+transform = Transform3D(-0.81915206, -0.32898995, 0.46984634, 0, 0.81915206, 0.57357645, -0.57357645, 0.46984634, -0.6710101, 0, 0, 0)
 light_energy = 0.3
-shadow_enabled = false
 
-[node name="Ground" type="MeshInstance3D" parent="World"]
-position = Vector3(0, -0.06, 0)
-mesh = SubResource("PlaneMesh_ground")
+[node name="Ground" type="MeshInstance3D" parent="World" unique_id=823061108]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.06, 0)
 material_override = SubResource("StandardMaterial3D_ground")
+mesh = SubResource("PlaneMesh_ground")
 
-[node name="Kitchen" type="Node3D" parent="World"]
+[node name="Kitchen" type="Node3D" parent="World" unique_id=1270051063]
 script = ExtResource("2_kitchen")
 layout_file = "res://resources/layouts/start_kitchen.txt"
+hide_near_walls = null
+near_wall_bias = null
 
-[node name="CameraRig" type="Node3D" parent="World"]
+[node name="CameraRig" type="Node3D" parent="World" unique_id=531672848]
 script = ExtResource("3_rig")
 camera = NodePath("Camera3D")
 
-[node name="Camera3D" type="Camera3D" parent="World/CameraRig"]
+[node name="Camera3D" type="Camera3D" parent="World/CameraRig" unique_id=2054036342]
 current = true
 fov = 50.0
 
-[node name="PlaceController" type="Node3D" parent="World"]
+[node name="PlaceController" type="Node3D" parent="World" unique_id=613602690]
 script = ExtResource("4_place")
 kitchen = NodePath("../Kitchen")
 camera = NodePath("../CameraRig/Camera3D")
 
-[node name="MapPaintController" type="Node3D" parent="World"]
+[node name="MapPaintController" type="Node3D" parent="World" unique_id=2041113115]
 script = ExtResource("6_paint")
-kitchen = NodePath("../Kitchen")
 placement_tool = NodePath("../PlaceController")
+kitchen = NodePath("../Kitchen")
 camera = NodePath("../CameraRig/Camera3D")
 
-[node name="Service" type="Node3D" parent="World"]
+[node name="Service" type="Node3D" parent="World" unique_id=1494093439]
 script = ExtResource("7_service")
 kitchen = NodePath("../Kitchen")
 
-[node name="DayController" type="Node" parent="World"]
+[node name="DayController" type="Node" parent="World" unique_id=304261387]
 script = ExtResource("9_day")
-service = NodePath("../Service")
-kitchen = NodePath("../Kitchen")
 
-[node name="Fx" parent="World" instance=ExtResource("13_fx")]
-service_path = NodePath("../../Service")
-kitchen_path = NodePath("../../Kitchen")
+[node name="Fx" parent="World" unique_id=106982808 instance=ExtResource("13_fx")]
 
-[node name="Roamers" parent="World" instance=ExtResource("14_roamers")]
+[node name="Roamers" parent="World" unique_id=700615728 instance=ExtResource("14_roamers")]
 
-[node name="UI" type="CanvasLayer" parent="."]
+[node name="UI" type="CanvasLayer" parent="." unique_id=33507011]
 script = ExtResource("10_ui")
-day = NodePath("../World/DayController")
-service = NodePath("../World/Service")
-kitchen = NodePath("../World/Kitchen")
-camera_rig = NodePath("../World/CameraRig")
-placer = NodePath("../World/PlaceController")
-paint = NodePath("../World/MapPaintController")
-world = NodePath("../World")
 
-[node name="Cutscene" type="Node" parent="UI"]
+[node name="Cutscene" type="Node" parent="UI" unique_id=1655269858]
 script = ExtResource("12_cutscene")
 
-[node name="LevelDesigner" type="Control" parent="UI"]
+[node name="LevelDesigner" type="Control" parent="UI" unique_id=1268422058]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("11_designer")
 
-[node name="DevHud" type="Control" parent="UI"]
+[node name="DevHud" type="Control" parent="UI" unique_id=1752377556]
 visible = false
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -114,7 +134,8 @@ script = ExtResource("8_hud")
 service_path = NodePath("../../World/Service")
 day_path = NodePath("../../World/DayController")
 
-[node name="Hint" type="Label" parent="UI/DevHud"]
+[node name="Hint" type="Label" parent="UI/DevHud" unique_id=1868884330]
+layout_mode = 0
 offset_left = 12.0
 offset_top = 10.0
 offset_right = 980.0
@@ -125,7 +146,8 @@ theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 14
 text = "loading..."
 
-[node name="Orders" type="Label" parent="UI/DevHud"]
+[node name="Orders" type="Label" parent="UI/DevHud" unique_id=1101155108]
+layout_mode = 0
 offset_left = 12.0
 offset_top = 96.0
 offset_right = 420.0
@@ -135,7 +157,8 @@ theme_override_colors/font_outline_color = Color(0, 0, 0, 0.75)
 theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 13
 
-[node name="Warnings" type="Label" parent="UI/DevHud"]
+[node name="Warnings" type="Label" parent="UI/DevHud" unique_id=894364943]
+layout_mode = 0
 offset_left = 12.0
 offset_top = 660.0
 offset_right = 1000.0

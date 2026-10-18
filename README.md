@@ -184,7 +184,7 @@ tray ──[intake: pack order]──▶ tray_with_order ─┐
   hovers and lags behind the mouse with inertia; LMB drops it, RMB puts it back) and buy new ones
   from the shop (tabs: stations / surfaces / storage / staff; decor is designer-only). Base
   ingredients come from a **storage** station, so a working kitchen needs a shelf or fridge.
-  Money carries across days and starts at **$250** — the authored start map ships a minimal
+  Money carries across days and starts at **$400** — the authored start map ships a minimal
   working kitchen (counter, stove, sink, pantry shelf, assembly table, one worker post).
 - **Start Day** only works when the kitchen can actually make every dish *and modifier variant*
   the day may ask for, with at least one worker post placed — otherwise the button says what is

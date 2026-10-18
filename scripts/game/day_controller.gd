@@ -30,7 +30,9 @@ signal reasons_changed(reasons: Array)
 @export var menu: Array[StringName] = [&"burger"]
 
 @export_group("Economy & loss")
-@export var starting_money := 250
+## Enough to buy the pieces a starter kitchen is missing — a sink, a shelf and
+## a fridge are $320 of it — with a little left over to experiment.
+@export var starting_money := 400
 ## An order waiting longer than this loses the day. Generous on purpose: the
 ## demo should be lost to the queue piling up, not to one slow dish.
 @export var order_time_limit_ticks := 800
