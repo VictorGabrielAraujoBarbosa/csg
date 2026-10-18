@@ -1505,7 +1505,12 @@ func _apply_wall_tint(cell: Vector2i, dir: int, color: Color) -> void:
 		data.wall_tints.erase(key)
 	else:
 		data.wall_tints[key] = color
-	_refresh_walls_around([key])
+	# Tint decides pairing too, so this rebuilds like a wall edit does.
+	if _generated != null and build_walls:
+		_adopt_live_layout()
+		rebuild()
+	else:
+		_refresh_walls_around([key])
 
 
 # ---------------------------------------------------------------------------
@@ -1733,9 +1738,26 @@ func _apply_floor(cell: Vector2i, kind: int) -> void:
 	_refresh_walls_around(edges)
 
 
+## Edits happen on `data`; make it the layout the builder reads from, so a
+## rebuild keeps them instead of reloading the file.
+func _adopt_live_layout() -> void:
+	if data != null and layout != data:
+		layout = data
+		layout_file = ""
+
+
 func _apply_wall(cell: Vector2i, dir: int, kind: int) -> void:
 	data.set_wall(cell, dir, kind)
-	_refresh_walls_around([KitchenLayout.edge_key(cell, dir)])
+	# A wall piece can pair with a neighbour, so a partial refresh can disagree
+	# with the rest of the map about which edges are paired. Walls are cheap:
+	# rebuild the whole layer so the picture always matches the data. The live
+	# layout becomes the working one first, or the rebuild would re-read the file
+	# and silently throw the edit away.
+	if _generated != null and build_walls:
+		_adopt_live_layout()
+		rebuild()
+	else:
+		_refresh_walls_around([KitchenLayout.edge_key(cell, dir)])
 
 
 func push_undo(entry: Dictionary) -> void:

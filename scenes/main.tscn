@@ -66,6 +66,7 @@ camera = NodePath("../CameraRig/Camera3D")
 [node name="MapPaintController" type="Node3D" parent="World"]
 script = ExtResource("6_paint")
 kitchen = NodePath("../Kitchen")
+placement_tool = NodePath("../PlaceController")
 camera = NodePath("../CameraRig/Camera3D")
 
 [node name="Service" type="Node3D" parent="World"]

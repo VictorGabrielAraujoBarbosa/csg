@@ -7,6 +7,9 @@ extends Node3D
 ## C cycles the tint colour, Ctrl+Z undoes.
 
 signal tool_changed(text: String)
+## While the placer holds a piece, clicks belong to it: in designer mode both
+## tools live on the left button, and they used to fight over it.
+@export var placement_tool: PlaceController
 ## A paint action was refused (the level designer shows this to the author).
 signal hint(text: String)
 
@@ -27,6 +30,9 @@ const WALL_PIECES := {
 }
 
 @export var kitchen: Kitchen
+## While the placer has something selected, clicks belong to it (designer mode
+## puts both tools on the left button).
+@export var placer: PlaceController
 @export var camera: Camera3D
 @export var active := false
 ## Colour applied by the tag preset tool / Shift+P, keyed by furniture tag.
@@ -182,6 +188,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					_apply_presets_to_all()
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if placement_tool != null and placement_tool.has_selection:
+			return  # a piece is in hand: the placer owns the mouse
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			_painting = mb.pressed
 			_last_cell = Vector2i(1 << 30, 1 << 30)

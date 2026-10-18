@@ -52,7 +52,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_M:
 			var map_mode := not map_editor.active
 			map_editor.set_active(map_mode)
-			placer.set_enabled(not map_mode)
+			# The designer places decor too, so the placer stays on; the painter
+			# stands down whenever a piece is selected.
+			placer.set_enabled(true)
 			designer.set_designer_visible(map_mode)
 			_update_hint()
 		KEY_G:
