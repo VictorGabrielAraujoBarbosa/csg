@@ -171,7 +171,7 @@ func _check_api(service: Service, kitchen: Kitchen) -> void:
 	_expect(is_equal_approx(service.sim_speed, 0.25), "api: set_slow_motion writes Service.sim_speed")
 	var ev := InputEventKey.new()
 	ev.pressed = true
-	ev.physical_keycode = KEY_SPACE
+	ev.physical_keycode = KEY_ENTER
 	director._input(ev)
 	_expect(not director.skip_requested(), "api: a press right after begin is ignored")
 	await _settle(4)

@@ -311,6 +311,10 @@ func _tick_mob() -> void:
 			threats.append(customer.cell)
 		for worker in living_workers():
 			worker.flee_from(threats)
+	# The workers have to tick too, or a fleeing worker plans a path nobody ever
+	# walks: FLEE was a pose while the mob was in.
+	for worker in living_workers():
+		worker.tick(tick)
 	for customer in customers:
 		customer.tick(tick)
 

@@ -210,8 +210,13 @@ func flee_from(threats: Array[Vector2i]) -> void:
 		service.board.cancel(job, "fleeing")
 		job = null
 	var goal := _flee_target(threats)
-	if goal.x < -1000 or goal == cell:
-		state = State.FLEE if goal.x > -1000 else state
+	if goal.x < -1000:
+		# Nowhere to run: stand and panic rather than keeping a stale state whose
+		# job has already been cancelled (that left a null job in tick()).
+		state = State.IDLE
+		return
+	if goal == cell:
+		state = State.FLEE
 		return
 	var path := Pathfinder.find_path(service.kitchen, cell, goal)
 	if path.is_empty():
@@ -262,16 +267,25 @@ func _on_arrived() -> void:
 			state = State.IDLE
 			_go_home()
 		State.TO_PICKUP:
+			if job == null:
+				_finish_job()
+				return
 			_carrying = service.pick_up(job, self)
 			if _carrying == null:
 				_fail("the item vanished before pickup")
 				return
 			_go_to(job.target_cell, State.TO_DROP)
 		State.TO_WORK:
+			if job == null:
+				_finish_job()
+				return
 			state = State.WORK
 			_work_left = maxi(job.recipe.duration_ticks, 1)
 			service.work_started.emit(self, job)
 		State.TO_DROP:
+			if job == null:
+				_finish_job()
+				return
 			service.finish_transfer(job)
 			_carrying = null
 			_finish_job()
