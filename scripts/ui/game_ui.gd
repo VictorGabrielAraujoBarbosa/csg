@@ -60,7 +60,7 @@ const GLASS_SOUND := "res://assets/kenney_impact-sounds/Audio/impactGlass_heavy_
 ## One-line premise under the title.
 @export var menu_premise := "A 99%-off sale, paid for by the delivery apps. Serve every order they send — or the customers come inside."
 ## The controls reminder on the menu card.
-@export var menu_controls := "LMB place · RMB sell · R rotate · Esc deselect"
+@export var menu_controls := "WASD pan · Q/E turn · wheel zoom · LMB place · RMB sell · R rotate · Esc deselect · Enter skips cutscenes"
 ## The asset credit line (all kits are Kenney CC0).
 @export var menu_credit := "Kenney CC0 asset kits (kenney.nl) · Music: Kevin MacLeod (incompetech.com) — CC BY 4.0"
 ## The map the main menu shows off, if the author has saved one.
@@ -386,9 +386,9 @@ func _build_catalog() -> void:
 	_catalog_panel = PanelContainer.new()
 	_catalog_panel.name = "Shop"
 	_catalog_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_catalog_panel.anchor_right = 0.72
+	_catalog_panel.anchor_right = 0.46
 	_catalog_panel.offset_left = 12.0
-	_catalog_panel.offset_top = -390.0
+	_catalog_panel.offset_top = -330.0
 	_catalog_panel.offset_right = -12.0
 	_catalog_panel.offset_bottom = -12.0
 	_catalog_panel.add_theme_stylebox_override("panel", _panel_style())
@@ -441,12 +441,12 @@ func _build_catalog() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(scroll)
 	_catalog_grid = GridContainer.new()
-	_catalog_grid.columns = 4
+	_catalog_grid.columns = 3
 	_catalog_grid.add_theme_constant_override("h_separation", 8)
 	_catalog_grid.add_theme_constant_override("v_separation", 8)
 	scroll.add_child(_catalog_grid)
 	_catalog_detail = PanelContainer.new()
-	_catalog_detail.custom_minimum_size = Vector2(196, 0)
+	_catalog_detail.custom_minimum_size = Vector2(172, 0)
 	_catalog_detail.add_theme_stylebox_override("panel", _card_style())
 	body.add_child(_catalog_detail)
 	var detail_column := VBoxContainer.new()
@@ -499,7 +499,7 @@ func _rebuild_shop(category: StringName) -> void:
 			continue
 		var button := Button.new()
 		button.text = "%s\n$%d" % [def.display_name, def.cost]
-		button.custom_minimum_size = Vector2(150, 54)
+		button.custom_minimum_size = Vector2(126, 50)
 		button.tooltip_text = ", ".join(def.tags)
 		button.icon = _icon(def)
 		button.add_theme_constant_override("icon_max_width", 34)
