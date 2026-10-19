@@ -26,11 +26,12 @@ Landed so far:
   the wall builder draws one native piece; a lone legacy edge still renders squeezed. This also
   fixed a real bug: the builder's partner search had its offsets swapped, so *no* feature ever
   paired and every window/doorway in the game was a squeezed half-width sliver.
-- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is everything with a job:
-  stations (stove, sink, assembly table), surfaces (counter, cutting table, plating station),
-  storage (shelf, fridge — base ingredients come from a `storage` station, so a kitchen without
-  one cannot cook) and the worker post. Bars, tables, sofas, plants and the redundant sizes stay
-  in the catalog for dev-authored maps only.
+- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is everything with a job and its
+  tabs are gameplay groupings: **Storage** (shelf, fridge — base ingredients come from a `storage`
+  station, so a kitchen without one cannot cook), **Workstations** (stove, sink, fryer, assembly
+  table, counter, cutting table, plating station — anything a recipe runs on or that holds work)
+  and **Workers** (the post), with All in catalog order. Bars, tables, sofas, plants and the
+  redundant sizes stay in the catalog for dev-authored maps only.
 - **Composed props** (`resources/props/*.tscn`): several Kenney models in one scene, measured
   like any piece (`cutting_table`, `plating_station`). `FurnitureDef.surface_override` puts items
   on the work surface rather than on the tallest decoration.
@@ -62,7 +63,9 @@ summary → "Next day" → BUILD. Capture flag `--ending` stages a whole run's e
 and screenshots skip the menu and intro. The menu *lends* the venue storage, a fridge and a sink for
 the showreel (`attract_stock`) and takes them back at Start — the shipped kitchen deliberately cannot
 cook, that is day 1's lesson. Screenshot-only capture flags: `--menu`, `--intro`, `--intro-card=N`,
-`--intro-door`, `--intro-skip`, `--intro-done`, `--thanks`.
+`--intro-door`, `--intro-skip`, `--intro-done`, `--thanks`, `--ui-shots` (the shop tabs with a
+filled description card, the Storage tab, a hovered placed piece in the detail card, and an order
+card's countdown both calm and angry).
 - **The two mascots** (`mascot_red` / `mascot_yellow`, decor in the start map, never named): the
   delivery platforms, recognised only by their colours (red/white, yellow/black).
 
@@ -73,7 +76,15 @@ cook, that is day 1's lesson. Screenshot-only capture flags: `--menu`, `--intro`
   modifiers. Day 4+ keeps the seeded generator with a deliberate squeeze (one more order per day,
   only +60 ticks) so the queue inevitably overflows and the horror closes the demo.
 - `order_time_limit_ticks` is 800 so the demo is lost to the *queue*, not to one slow dish.
-- **Shop cards explain themselves**: `FurnitureDef.description` is shown in the detail panel.
+- **Shop cards explain themselves**: `FurnitureDef.description` is shown in the detail panel, in
+  pure gameplay terms ("Cooks raw patties. Burgers cannot be made without one.") — no flavour. The
+  card follows the piece under the cursor in the build phase (the placer's own hover state, the
+  same source as the work-tile indicator: grabbed > hovered placed piece > shop selection), so a
+  hovered piece shows its name, cost, description and "LMB pick up · RMB sell".
+- **Blunt refusals**: the Start Day gate maps every dry-run reason to "Your kitchen can't make X —
+  you need a Y." (`DayController._tidy_reasons` + `_fixer_phrase`, which finds the shop piece
+  carrying the missing station tag), one line per missing thing, never the planner cascade.
+  The order card's countdown is a big number under an "angry in" caption, red in the last quarter.
 - **Selling**: removing a piece refunds its full cost when the player bought it (`FurnitureInstance.paid`);
   venue pieces from the map file refund nothing (they are not a money printer). Undo of a sale
   restores the piece *and* takes the money back.

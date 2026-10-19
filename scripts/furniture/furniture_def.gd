@@ -38,7 +38,7 @@ extends Resource
 ## Buyable in the build-phase shop. Decor pieces are map-authoring only: they
 ## stay in the catalog (dev maps, the level designer) but not on sale.
 @export var shop := false
-## Shop grouping: "stations", "surfaces", "workers" (or "decor").
+## Shop grouping: "storage", "workstations", "workers" (or "decor").
 @export var category: StringName = &"decor"
 
 var _auto_size := Vector2i.ZERO

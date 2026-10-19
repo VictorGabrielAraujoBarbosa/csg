@@ -5,7 +5,11 @@ extends Node
 ## A short letterboxed sequence built on [CutsceneDirector]: five cards over the
 ## live kitchen, two camera beats (the cooking line, then the front door) and a
 ## single horror hint on "Sales are up" — the lights dip, a low growl and one
-## vignette pulse. Any key skips it (the director owns the skip check).
+## vignette pulse. Enter skips it (the director owns the skip check and requires
+## Enter); a small "Enter to skip" hint sits in the bottom-right corner for the
+## whole sequence, its text following
+## [member CutsceneDirector.skip_requires_enter] so it can never advertise a key
+## that does nothing.
 ##
 ## Presentation only (invariant 11): it writes no simulation state at all. The
 ## only things it touches are the music track, the sun/fill light energies and
@@ -72,6 +76,21 @@ extends Node
 ## Music track id played under the intro (see [constant AudioBank.MUSIC_TRACKS]).
 @export var music := "build"
 
+@export_group("Skip hint")
+## The hint in the bottom-right corner while the sequence runs. The director's
+## skip is Enter-only ([member CutsceneDirector.skip_requires_enter]), so the
+## hint says exactly that: never advertise a key that does nothing.
+@export var skip_hint := "Enter to skip"
+## What the hint says when the director accepts any key instead of Enter.
+@export var skip_hint_any_key := "any key to skip"
+## Font size of the hint (small: it is a nudge, not a card).
+@export var skip_hint_font_size := 16
+## Distance of the hint from the screen's bottom-right corner (pixels).
+@export var skip_hint_margin := Vector2(20.0, 20.0)
+## Extra clearance from the bottom, so the hint sits just above the letterbox
+## bar instead of on top of it (pixels).
+@export var skip_hint_bar_gap := 10.0
+
 ## Emitted when the sequence is over (played through or skipped).
 signal finished
 
@@ -96,6 +115,8 @@ var _bank: Node
 var _lights: Array[DirectionalLight3D] = []
 var _light_base: Array[float] = []
 var _light_tween: Tween
+var _hint_layer: CanvasLayer
+var _hint_label: Label
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +137,7 @@ func play() -> void:
 		return
 	_play_music()
 	director.begin()
+	_show_skip_hint()
 	# Beat 1: the cooking line, where the showreel was working.
 	await director.focus_cell(_cooking_cell(), cooking_distance, beat_time)
 	beat = "cooking"
@@ -193,12 +215,100 @@ func _hint() -> void:
 
 func _finish(director: CutsceneDirector) -> void:
 	beat = "done"
+	_hide_skip_hint()
 	_clear_horde()
 	_dip_lights(false)
 	if director != null:
 		director.finish()
 	running = false
 	finished.emit()
+
+
+# ---------------------------------------------------------------------------
+# Skip hint (bottom-right, for the whole sequence)
+# ---------------------------------------------------------------------------
+
+## The label carrying the skip hint, or null before [method play]. Tools read it.
+func skip_hint_label() -> Label:
+	return _hint_label
+
+
+## The hint text the current director implies: a director that requires Enter
+## says so, one that accepts any key says that instead. The hint never
+## advertises a key the director ignores.
+func skip_hint_text() -> String:
+	var director := _cutscene()
+	if director != null and not director.skip_requires_enter:
+		return skip_hint_any_key
+	return skip_hint
+
+
+## Puts the hint up for the whole sequence: the player must be able to leave at
+## any beat, not only while a card is on screen.
+func _show_skip_hint() -> void:
+	_ensure_hint_layer()
+	if _hint_label == null or not is_instance_valid(_hint_label):
+		return
+	_hint_label.text = skip_hint_text()
+	_hint_label.visible = true
+	_layout_skip_hint()
+
+
+func _hide_skip_hint() -> void:
+	if _hint_label != null and is_instance_valid(_hint_label):
+		_hint_label.visible = false
+
+
+## Builds the hint overlay once: its own CanvasLayer above the director's
+## overlays, holding a small right-aligned label.
+func _ensure_hint_layer() -> void:
+	if _hint_layer != null and is_instance_valid(_hint_layer):
+		return
+	_hint_layer = CanvasLayer.new()
+	_hint_layer.name = "SkipHintLayer"
+	# Above the director's cutscene overlays (CutsceneDirector uses layer 100).
+	_hint_layer.layer = 101
+	add_child(_hint_layer)
+	_hint_label = Label.new()
+	_hint_label.name = "SkipHint"
+	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_hint_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint_label.add_theme_font_size_override("font_size", skip_hint_font_size)
+	_hint_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.82))
+	_hint_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.75))
+	_hint_label.add_theme_constant_override("outline_size", 5)
+	_hint_label.visible = false
+	_hint_layer.add_child(_hint_label)
+	var vp := get_viewport()
+	if vp != null and not vp.size_changed.is_connected(_layout_skip_hint):
+		vp.size_changed.connect(_layout_skip_hint)
+
+
+## Anchors the hint to the screen's bottom-right corner, clear of the letterbox
+## bar so the two never overlap.
+func _layout_skip_hint() -> void:
+	if _hint_label == null or not is_instance_valid(_hint_label):
+		return
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var view_size := vp.get_visible_rect().size
+	var label_size := _hint_label.get_combined_minimum_size()
+	if _hint_label.size != label_size:
+		_hint_label.size = label_size
+	_hint_label.position = Vector2(
+		view_size.x - skip_hint_margin.x - label_size.x,
+		view_size.y - skip_hint_margin.y - _letterbox_height() - skip_hint_bar_gap - label_size.y)
+
+
+## Height of the director's letterbox bar, so the hint sits above it.
+func _letterbox_height() -> float:
+	var director := _cutscene()
+	var vp := get_viewport()
+	if director == null or vp == null:
+		return 0.0
+	return roundf(vp.get_visible_rect().size.y * director.letterbox_ratio)
 
 
 # ---------------------------------------------------------------------------

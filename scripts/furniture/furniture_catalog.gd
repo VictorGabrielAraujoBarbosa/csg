@@ -38,9 +38,10 @@ static func shop_items() -> Array[FurnitureDef]:
 	return out
 
 
-## The shop groupings that actually have something in them, in a fixed order.
+## The shop groupings that actually have something in them, in a fixed order:
+## what holds ingredients, what runs recipes, who does the work.
 static func shop_categories() -> Array[StringName]:
-	var order: Array[StringName] = [&"stations", &"surfaces", &"storage", &"workers"]
+	var order: Array[StringName] = [&"storage", &"workstations", &"workers"]
 	var out: Array[StringName] = []
 	for category in order:
 		for def in all():
@@ -52,14 +53,12 @@ static func shop_categories() -> Array[StringName]:
 
 static func category_label(category: StringName) -> String:
 	match category:
-		&"stations":
-			return "Stations"
-		&"surfaces":
-			return "Surfaces"
+		&"workstations":
+			return "Workstations"
 		&"storage":
 			return "Storage"
 		&"workers":
-			return "Staff"
+			return "Workers"
 		&"decor":
 			return "Decor"
 	return String(category)
@@ -69,27 +68,30 @@ static func build() -> Array[FurnitureDef]:
 	var out: Array[FurnitureDef] = []
 	# id, name, model, footprint, cost, tags, category, shop
 	# --- the shop: everything that has a job in the kitchen ---
-	out.append(_make("stove", "Stove", "kitchenStove.glb", Vector2i(1, 1), 120, ["cooking", "heat"], &"stations", true,
-		"Cooks raw patties. A worker stands here while it cooks."))
-	out.append(_make("sink", "Sink", "kitchenSink.glb", Vector2i(1, 1), 100, ["washing", "water"], &"stations", true,
-		"Washes dirty trays so they go back into the pool."))
-	out.append(_make("fryer", "Fryer", "kitchenMicrowave.glb", Vector2i(1, 1), 120, ["frying"], &"stations", true,
-		"Fries potatoes. Without one you cannot serve + fries orders."))
-	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"stations", true,
-		"Where the finished dish is put together."))
-	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["surface"], &"surfaces", true,
-		"A plain work surface: somewhere to put things down. Salads and cheese slices need a cutting table."))
+	out.append(_make("stove", "Stove", "kitchenStove.glb", Vector2i(1, 1), 120, ["cooking", "heat"], &"workstations", true,
+		"Cooks raw patties. Burgers cannot be made without one."))
+	out.append(_make("sink", "Sink", "kitchenSink.glb", Vector2i(1, 1), 100, ["washing", "water"], &"workstations", true,
+		"Washes dirty trays. Without one, trays run out and orders stop."))
+	out.append(_make("fryer", "Fryer", "kitchenMicrowave.glb", Vector2i(1, 1), 120, ["frying"], &"workstations", true,
+		"Fries potatoes. Orders with + fries cannot be made without one."))
+	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"workstations", true,
+		"Assembles finished dishes. The last step before plating."))
+	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["surface"], &"workstations", true,
+		"A plain surface to put things on. No recipes run here."))
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
 	# with none of these cannot cook at all.
-	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"]))
-	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"]))
+	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"decor", false,
+		"Dry storage: bread, potatoes and sauce come from here."))
+	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"], &"decor", false,
+		"Cold storage: raw patties, cheese, tomatoes and lettuce come from here."))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
-		["prep", "surface"], 0.9, "Board and knife: salads and cheese slices are made here."))
+		["prep", "surface"], 0.9, "Prep surface: salads and cheese slices are made here."))
 	out.append(_make_prop("plating_station", "Plating Station", "plating_station.tscn", Vector2i(1, 1), 110,
-		["prep", "surface"], 0.9, "Trays and plates, ready for the line."))
+		["prep", "surface"], 0.9,
+		"Prep surface: salads and cheese slices are made here. Same job as the Cutting Table."))
 	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 60, ["worker"], &"workers", true,
-		"Spawns a chibi. More posts, more hands on the line."))
+		"Adds one worker. More posts, more orders served at once."))
 	# --- decor: map-authoring pieces (the level designer places these) ---
 	out.append(_make("drawer_counter", "Drawer Counter", "kitchenCabinetDrawer.glb", Vector2i(1, 1), 80, ["prep", "surface", "storage"]))
 	out.append(_make("bar", "Serving Bar", "kitchenBar.glb", Vector2i(1, 1), 90, ["serving", "surface"]))
@@ -104,7 +106,8 @@ static func build() -> Array[FurnitureDef]:
 	out.append(_make("sofa", "Sofa", "loungeSofa.glb", Vector2i(2, 1), 110, ["dining", "comfort"]))
 	out.append(_make("sofa_long", "Long Sofa", "loungeDesignSofa.glb", Vector2i(3, 1), 160, ["dining", "comfort"]))
 	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
-	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"]))
+	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"], &"decor", false,
+		"Cold and dry storage in one: every ingredient comes from here."))
 	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
 	# The two delivery platforms, recognised only by their colours. Never named,
 	# never sold: they simply stand in the restaurant.
@@ -124,12 +127,13 @@ static func build() -> Array[FurnitureDef]:
 	# Stocked versions of the storage pieces: the goods are part of the prop, so
 	# they read at a glance as "this is where ingredients come from".
 	var stocked_shelf := _make("shelf_stocked", "Shelf", "shelf_stocked.tscn", Vector2i(1, 1), 70,
-		["storage"], &"storage", true, "Dry storage with bread on the shelves: potatoes, bread and sauce. Cold goods need a fridge.", PROPS_DIR)
+		["storage"], &"storage", true, "Dry storage: bread, potatoes and sauce come from here.", PROPS_DIR)
 	stocked_shelf.surface_override = 1.70
 	stocked_shelf.icon_path = ISOMETRIC_DIR + "bookcaseClosed_NE.png"
 	out.append(stocked_shelf)
 	var stocked_fridge := _make("fridge_stocked", "Fridge", "fridge_stocked.tscn", Vector2i(1, 1), 150,
-		["cold"], &"storage", true, "Cold storage with goods on top: meat, cheese and salads. A kitchen needs a shelf as well.", PROPS_DIR)
+		["cold"], &"storage", true,
+		"Cold storage: raw patties, cheese, tomatoes and lettuce come from here. A Shelf does not cover these.", PROPS_DIR)
 	stocked_fridge.surface_override = 1.84
 	stocked_fridge.icon_path = ISOMETRIC_DIR + "kitchenFridge_NE.png"
 	out.append(stocked_fridge)
@@ -145,7 +149,7 @@ static func build() -> Array[FurnitureDef]:
 ## like any other piece, but its icon has no kit render yet.
 static func _make_prop(id: String, name: String, file: String, footprint: Vector2i, cost: int,
 		tags: Array, surface: float, desc := "") -> FurnitureDef:
-	var def := _make(id, name, file, footprint, cost, tags, &"surfaces", true, desc, PROPS_DIR)
+	var def := _make(id, name, file, footprint, cost, tags, &"workstations", true, desc, PROPS_DIR)
 	def.icon_path = ISOMETRIC_DIR + "kitchenCabinet_NE.png"  # the props are built on a cabinet
 	def.surface_override = surface
 	return def

@@ -378,6 +378,25 @@ func can_cross(a: Vector2i, b: Vector2i) -> bool:
 	return data.can_cross(a, b)
 
 
+# --- Ghost rules (the horror customers) -------------------------------------
+# The mob is a placeholder horror monster, not a chibi: it walks through walls
+# and over furniture, because a hunt that stalls behind a counter breaks the
+# run. Both predicates live here, next to their strict twins, so the rule has
+# exactly one home (the pathfinder only asks).
+
+
+## A cell a ghost can stand on: every floor cell, whatever furniture or
+## structural point sits on it. A customer standing on a counter is fine.
+func walkable_for_ghost(cell: Vector2i) -> bool:
+	return has_floor(cell)
+
+
+## A ghost crosses every edge between two cells, wall or not (it came in through
+## a window; nothing stops it after that).
+func can_cross_ghost(a: Vector2i, b: Vector2i) -> bool:
+	return data != null and absi(a.x - b.x) + absi(a.y - b.y) == 1
+
+
 func get_points() -> Dictionary:
 	return data.points if data != null else {}
 

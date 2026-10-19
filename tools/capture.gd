@@ -201,6 +201,8 @@ func _ready() -> void:
 		_paint_demo(kitchen)
 	if not shoot_only and "--item-showcase" in OS.get_cmdline_user_args():
 		_item_showcase(scene)
+	if not shoot_only and "--ui-shots" in OS.get_cmdline_user_args():
+		await _stage_ui_shots(scene, sub)
 	print("kitchen: ", kitchen, " data=", kitchen.data if kitchen != null else null,
 		" floors=", kitchen.data.floors.size() if kitchen != null and kitchen.data != null else -1)
 	if rig != null:
@@ -512,6 +514,72 @@ func _stage_ending(ui: Node, scene: Node) -> void:
 		service.orders.active_orders().size(), service.orders.completed_count,
 		service.workers_busy()])
 	await _shoot(sub, SHOT_DIR + "/menu_back.png")
+
+
+## The UI screenshots in one run (--ui-shots): the shop with its gameplay tabs
+## and a filled description card, the Storage tab on its own, the detail card
+## following a hovered placed piece, and an order card with the big countdown.
+## Each shot is one frame, so the tweens that move the frame aside and slide the
+## cards in have to land first.
+func _stage_ui_shots(scene: Node, sub: SubViewport) -> void:
+	var ui := scene.get_node_or_null("UI")
+	var service := scene.find_child("Service", true, false) as Service
+	var day := scene.find_child("DayController", true, false) as DayController
+	var placer := scene.find_child("PlaceController", true, false) as PlaceController
+	if ui == null or service == null or day == null or placer == null:
+		print("[ui-shots] missing UI, service, day controller or placer")
+		return
+	DirAccess.make_dir_recursive_absolute(SHOT_DIR)
+	# 1) the shop: the tabs plus a description card (the whole catalog on show).
+	#    The capture's placer is off, so the placement ghost is hidden by hand.
+	ui._rebuild_shop(&"")
+	placer.select_by_id(&"stove")
+	placer._hide()
+	ui._update_detail()
+	await _shoot(sub, SHOT_DIR + "/shop_tabs.png")
+	# 2) the Storage tab filters the grid to the pieces that hold ingredients.
+	ui._rebuild_shop(&"storage")
+	placer.select_by_id(&"fridge_stocked")
+	placer._hide()
+	ui._update_detail()
+	await _shoot(sub, SHOT_DIR + "/shop_storage.png")
+	# 3) a hovered placed piece fills the card, through the same hover state the
+	#    work-tile indicator reads.
+	placer.clear_selection()
+	placer._has_hover = true
+	placer._hover_cell = Vector2i(3, 1)  # the demo kitchen's stove
+	ui._update_detail()
+	await get_tree().process_frame
+	await _shoot(sub, SHOT_DIR + "/hover_detail.png")
+	placer._has_hover = false
+	ui._update_detail()
+	# 4) an order card mid-day: the countdown is the loudest thing on it.
+	_reset_world(service)
+	service.sim_speed = 0.0
+	day.day = 0
+	var reasons := day.can_start_day()
+	print("[ui-shots] gate: ", reasons)
+	if reasons.is_empty():
+		day.start_day()
+		await _wait_seconds(0.8)  # let the frame tween to the day layout
+		service.run_ticks(120)
+		await _wait_seconds(0.6)  # let the card finish sliding in
+		for order in service.orders.active_orders():
+			var wrap: Control = ui._cards.get(order.id)
+			var number := wrap.find_child("Timer", true, false) as Label if wrap != null else null
+			var clock := wrap.find_child("Clock", true, false) as Control if wrap != null else null
+			print("[ui-shots] order #%d card=%s timer='%s' age=%d clock inside the panel=%s" % [
+				order.id, wrap != null, number.text if number != null else "-",
+				service.tick - order.created_tick,
+				clock != null and clock.get_global_rect().end.x < ui._order_panel.get_global_rect().end.x])
+		await _shoot(sub, SHOT_DIR + "/order_timer.png")
+		# The same card in the last quarter of its window: the countdown goes red.
+		for order in service.orders.active_orders():
+			order.created_tick = service.tick - int(day.order_time_limit_ticks * 0.85)
+		ui._update_order_timers()
+		await _shoot(sub, SHOT_DIR + "/order_timer_angry.png")
+	else:
+		print("[ui-shots] the day could not start, no order-card shot")
 
 
 ## Waits until [param text] is the card on screen (the ending chain is real
@@ -1183,8 +1251,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(menu_svc.can_serve(&"burger", [], []).is_empty(),
 			"menu: the lent pieces make the shipped start kitchen cookable")
 		menu_ui._clear_attract_stock()
-		_expect(not menu_svc.can_serve(&"burger", [], []).is_empty(),
+		var blunt_shipped := DayController._tidy_reasons(menu_svc.can_serve(&"burger", [], []))
+		_expect(not blunt_shipped.is_empty(),
 			"menu: the lent pieces go back when the game starts")
+		_expect(_contains(blunt_shipped, "Shelf") or _contains(blunt_shipped, "Fridge"),
+			"gate: the shipped start kitchen is told which storage piece it needs (%s)" % str(blunt_shipped))
 	_expect(kitchen.load_layout(save_path), "designer: the saved map loads back")
 	_expect(kitchen.data.floors.size() == designer_floors and kitchen.data.walls.size() == designer_walls
 		and kitchen.data.furniture.size() == designer_furniture, "designer: the reloaded map matches")
@@ -1237,6 +1308,80 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 				"ui: R reaches the placement controller through the viewport")
 			placer2.has_selection = false
 			placer2.set_process_unhandled_input(false)
+		# --- shop UI: the gameplay tabs and the detail card ---
+		var tab_texts: Array[String] = []
+		for tab in ui._tabs:
+			tab_texts.append(tab.text)
+		var wanted_tab_texts: Array[String] = ["All", "Storage", "Workstations", "Workers"]
+		_expect(tab_texts == wanted_tab_texts,
+			"shop ui: the tab row is All + the three gameplay tabs (%s)" % str(tab_texts))
+		ui._rebuild_shop(&"storage")
+		await get_tree().process_frame  # the old cards are only freed at frame end
+		var wrong_tab := 0
+		for child in ui._catalog_grid.get_children():
+			var tab_def := FurnitureCatalog.find(child.get_meta("id", &""))
+			if tab_def == null or tab_def.category != &"storage":
+				wrong_tab += 1
+		_expect(wrong_tab == 0 and ui._catalog_grid.get_child_count() > 0,
+			"shop ui: the Storage tab shows storage pieces only (%d cards)" % ui._catalog_grid.get_child_count())
+		ui._rebuild_shop(&"")
+		# --- detail card: it describes the piece under the cursor ---
+		if placer2 != null:
+			var hover_stove := kitchen.furniture_at(Vector2i(3, 1))
+			_expect(hover_stove != null and hover_stove.def.id == &"stove",
+				"detail: the demo kitchen has a stove at (3,1) to hover")
+			placer2.clear_selection()
+			placer2._has_hover = true
+			placer2._hover_cell = Vector2i(3, 1)
+			ui._update_detail()
+			_expect(ui._detail_name.text == "Stove" and ui._detail_price.text == "$120",
+				"detail: hovering a placed piece names it and prices it (%s %s)" % [
+					ui._detail_name.text, ui._detail_price.text])
+			_expect(ui._detail_info.text.contains("Cooks raw patties"),
+				"detail: the hovered piece's description is on the card")
+			_expect(ui._detail_info.text.contains("LMB pick up") and ui._detail_info.text.contains("RMB sell"),
+				"detail: the card offers pick up / sell for a placed piece")
+			# With nothing hovered the shop selection drives the card again.
+			placer2._has_hover = false
+			placer2.select_by_id(&"fryer")
+			ui._update_detail()
+			_expect(ui._detail_name.text == "Fryer" and ui._detail_info.text.contains("Fries potatoes"),
+				"detail: with nothing hovered the shop selection is described (%s)" % ui._detail_name.text)
+			placer2.clear_selection()
+			ui._update_detail()
+			_expect(ui._detail_name.text == "Nothing selected",
+				"detail: with nothing hovered or selected the card says so")
+		# --- order card: the countdown is the loudest thing on it ---
+		var card_service := scene.find_child("Service", true, false) as Service
+		var card_day := scene.find_child("DayController", true, false) as DayController
+		if card_service != null and card_day != null:
+			var card_order := card_service.orders.spawn(&"burger", [], [])
+			card_order.created_tick = card_service.tick
+			ui._add_card(card_order)
+			var card_wrap: Control = ui._cards.get(card_order.id)
+			_expect(card_wrap != null, "order card: a card is built for an order")
+			if card_wrap != null:
+				var card_number := card_wrap.find_child("Timer", true, false) as Label
+				var card_caption := card_wrap.find_child("AngryIn", true, false) as Label
+				var card_dish := card_wrap.find_child("Dish", true, false) as Label
+				_expect(card_number != null and card_caption != null and card_dish != null,
+					"order card: it carries a dish name, a plain-language label and a countdown")
+				if card_number != null and card_caption != null and card_dish != null:
+					_expect(card_caption.text == "angry in",
+						"order card: the label says what the number means (%s)" % card_caption.text)
+					var big: int = card_number.get_theme_font_size("font_size")
+					var small: int = card_dish.get_theme_font_size("font_size")
+					_expect(big > small * 3 / 2,
+						"order card: the countdown is much larger than the dish name (%d vs %d)" % [big, small])
+					ui._update_order_timers()
+					_expect(not _is_red(card_number.get_theme_color("font_color")),
+						"order card: the countdown is calm while there is time")
+					card_order.created_tick = card_service.tick - int(card_day.order_time_limit_ticks * 0.9)
+					ui._update_order_timers()
+					_expect(_is_red(card_number.get_theme_color("font_color")),
+						"order card: the countdown turns red in the last quarter")
+			card_service.orders.fail(card_order, "test")
+			ui._clear_cards()
 	# --- map paint controller ---
 	var painter := scene.find_child("MapPaintController", true, false) as MapPaintController
 	if painter != null:
@@ -1332,6 +1477,30 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			and not shop_ids.has(&"table_round"), "shop: decor and functionless pieces are not on sale")
 		_expect(not shop_ids.has(&"shelf") and not shop_ids.has(&"fridge"),
 			"shop: the plain kit storage pieces are decor (the stocked props are the ones on sale)")
+		# Every shop card explains itself: what it does, what breaks without it.
+		var undescribed := 0
+		for def in FurnitureCatalog.shop_items():
+			if def.description.strip_edges().is_empty():
+				undescribed += 1
+		_expect(undescribed == 0, "shop: all %d pieces carry a description" % FurnitureCatalog.shop_items().size())
+		var shop_stove := FurnitureCatalog.find(&"stove")
+		_expect(shop_stove != null and shop_stove.description.contains("Cooks raw patties")
+			and shop_stove.description.contains("cannot be made without one"),
+			"shop: the stove's copy says what it does and what breaks without it (%s)" % shop_stove.description)
+		# The tabs are gameplay groupings, not furniture types.
+		var wanted_categories: Array[StringName] = [&"storage", &"workstations", &"workers"]
+		_expect(FurnitureCatalog.shop_categories() == wanted_categories,
+			"shop: three gameplay tabs in order (%s)" % str(FurnitureCatalog.shop_categories()))
+		for category in wanted_categories:
+			var in_tab := 0
+			for def in FurnitureCatalog.shop_items():
+				if def.category == category:
+					in_tab += 1
+			_expect(in_tab > 0, "shop: the %s tab has pieces (%d)" % [
+				FurnitureCatalog.category_label(category), in_tab])
+		_expect(FurnitureCatalog.category_label(&"workers") == "Workers"
+			and FurnitureCatalog.category_label(&"workstations") == "Workstations",
+			"shop: the tabs read Storage / Workstations / Workers")
 		var shelf_def := FurnitureCatalog.find(&"shelf_stocked")
 		var fridge_def := FurnitureCatalog.find(&"fridge_stocked")
 		_expect(shelf_def != null and shelf_def.has_tag(&"storage") and not shelf_def.has_tag(&"cold"),
@@ -1385,12 +1554,12 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		# order cannot be served until the player buys a fryer.
 		var fryer_def := FurnitureCatalog.find(&"fryer")
 		_expect(fryer_def != null and fryer_def.has_tag(&"frying"), "fryer: the shop piece carries the frying tag")
-		var without_fryer := service.can_serve(&"burger", [&"add_fries"], [])
-		var wants_frying := false
+		var without_fryer := DayController._tidy_reasons(service.can_serve(&"burger", [&"add_fries"], []))
+		var wants_fryer := false
 		for text in without_fryer:
-			if text.contains("frying"):
-				wants_frying = true
-		_expect(wants_frying, "fryer: without one the gate asks for a frying station")
+			if text.contains("Fryer"):
+				wants_fryer = true
+		_expect(wants_fryer, "fryer: without one the gate says you need a Fryer (%s)" % str(without_fryer))
 		var fryer_cell := Vector2i(2, 2)
 		_expect(kitchen.place_furniture(fryer_def, fryer_cell, 0) != null, "fryer: it can be placed")
 		service.rebuild_stations()
@@ -1440,11 +1609,8 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		kitchen.remove_furniture_at(sink_cell)
 		service.rebuild_stations()
 		var no_sink := gate_day.can_start_day()
-		var mentions_washing := false
-		for text in no_sink:
-			if text.contains("washing"):
-				mentions_washing = true
-		_expect(mentions_washing, "gate: a kitchen with no sink is refused (the tray cycle cannot close)")
+		_expect(_contains(no_sink, "Sink") and _contains(no_sink, "wash trays"),
+			"gate: a kitchen with no sink is refused in plain words (%s)" % str(no_sink))
 		kitchen.place_furniture(sink_inst.def, sink_cell, 0)
 		service.rebuild_stations()
 		_expect(gate_day.can_start_day().is_empty(), "gate: putting the sink back clears the refusal")
@@ -1456,11 +1622,43 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			if not st.has_tag(&"cooking"):
 				no_cooking.append(st)
 		service.stations = no_cooking
-		var reasons_bad := service.can_serve(&"burger", [], [])
+		var reasons_bad := gate_day.can_start_day()
 		_expect(not reasons_bad.is_empty(), "gate: a kitchen without a stove is refused")
-		_expect(_contains(reasons_bad, "cooking") or _contains(reasons_bad, "Cooked Patty"),
-			"gate: the refusal names what is missing")
+		_expect(_contains(reasons_bad, "Stove") and _contains(reasons_bad, "Cooked Patty"),
+			"gate: the refusal names the missing dish and the piece that fixes it (%s)" % str(reasons_bad))
 		service.stations = saved_stations
+		# The raw dry-run lines ("no storage station to get Bread from") are never
+		# shown to the player: the gate maps each one to the shop piece that fixes
+		# it, and drops the cascade behind it.
+		var blunt_storage := DayController._tidy_reasons(["no storage station to get Bread from"])
+		_expect(blunt_storage.size() == 1
+			and blunt_storage[0] == "Your kitchen can't make Bread — you need a Shelf.",
+			"gate: a missing storage station reads as a blunt sentence (%s)" % str(blunt_storage))
+		var blunt_cold := DayController._tidy_reasons(["no cold station to get Raw Patty from"])
+		_expect(blunt_cold.size() == 1
+			and blunt_cold[0] == "Your kitchen can't make Raw Patty — you need a Fridge.",
+			"gate: cold goods point at the fridge (%s)" % str(blunt_cold))
+		var blunt_cook := DayController._tidy_reasons([
+			"no cooking station to make Cooked Patty",
+			"cannot make Burger: no way to provide patty_cooked"])
+		_expect(blunt_cook.size() == 1
+			and blunt_cook[0] == "Your kitchen can't make Cooked Patty — you need a Stove.",
+			"gate: the cascade behind a missing station is dropped (%s)" % str(blunt_cook))
+		var blunt_assembly := DayController._tidy_reasons(["no assembly station to plate Burger"])
+		_expect(blunt_assembly.size() == 1
+			and blunt_assembly[0] == "Your kitchen can't make Burger — you need an Assembly Table.",
+			"gate: a missing assembly station names the table (%s)" % str(blunt_assembly))
+		var blunt_prep := DayController._tidy_reasons(["no prep station to make Salad"])
+		_expect(blunt_prep.size() == 1
+			and blunt_prep[0] == "Your kitchen can't make Salad — you need a Cutting Table or a Plating Station.",
+			"gate: a missing prep station names both surfaces (%s)" % str(blunt_prep))
+		var blunt_staff := DayController._tidy_reasons(["no worker post placed"])
+		_expect(blunt_staff.size() == 1
+			and blunt_staff[0] == "Your kitchen has no staff — place a Worker Post.",
+			"gate: no staff reads as a blunt sentence (%s)" % str(blunt_staff))
+		var blunt_unknown := DayController._tidy_reasons(["nothing can make Unobtainium"])
+		_expect(blunt_unknown.size() == 1 and not blunt_unknown[0].is_empty(),
+			"gate: an unmappable refusal still says something (%s)" % str(blunt_unknown))
 		# --- day plans are deterministic ---
 		var plan_a := DayPlan.generate(1, 1234, [&"burger"], [&"add_fries", &"no_cheese"], 3, 600, 2)
 		var plan_b := DayPlan.generate(1, 1234, [&"burger"], [&"add_fries", &"no_cheese"], 3, 600, 2)
@@ -1589,6 +1787,11 @@ func _contains(lines: Array, text: String) -> bool:
 		if String(line).contains(text):
 			return true
 	return false
+
+
+## True when a label colour reads as the countdown's warning red.
+func _is_red(color: Color) -> bool:
+	return color.r > color.g + 0.2 and color.r > color.b + 0.2
 
 
 func _post_count(kitchen: Kitchen) -> int:

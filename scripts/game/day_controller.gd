@@ -134,7 +134,8 @@ func _on_tick(_tick: int) -> void:
 
 
 ## The build phase can start when the kitchen can make every dish (and variant)
-## the coming day may ask for, and at least one worker is on shift.
+## the coming day may ask for, and at least one worker is on shift. The reasons
+## are the blunt, player-facing sentences of [method _tidy_reasons].
 func can_start_day() -> Array[String]:
 	var reasons: Array[String] = []
 	if service == null:
@@ -155,35 +156,112 @@ func can_start_day() -> Array[String]:
 	return _tidy_reasons(reasons)
 
 
-## The dry run explains every missing link ("no storage station to get Bread
-## from", "cannot make Burger: no way to provide bread", ...). For the player we
-## keep the structural reasons (a missing station, no staff) and drop the
-## cascade that follows from them.
+## The dry run explains every missing link in planner speak ("no storage station
+## to get Bread from", "cannot make Burger: no way to provide bread", ...). The
+## player only ever sees the blunt form: what the kitchen cannot make and the
+## shop piece that fixes it. One line per missing thing (deduped by the missing
+## tag), never the cascade that follows from it.
 static func _tidy_reasons(reasons: Array[String]) -> Array[String]:
 	var out: Array[String] = []
 	var seen := {}
 	for text in reasons:
-		if text.contains("worker post"):
-			out.append(text)
-			seen["workers"] = true
-	var structural: Array[String] = []
-	for text in reasons:
-		if not text.begins_with("no "):
-			continue
-		var idx := text.find(" station")
-		if idx < 0:
-			continue
-		var key := text.substr(3, idx - 3)
-		if key.begins_with("free "):
-			key = key.substr(5)
+		var key := _reason_key(text)
 		if seen.has(key):
 			continue
 		seen[key] = true
-		structural.append(text)
-	if structural.is_empty():
-		return reasons if not reasons.is_empty() else out
-	out.append_array(structural)
+		var line := _blunt_reason(text)
+		if not line.is_empty():
+			out.append(line)
+	# A refusal must always say something: the gate is never allowed to look
+	# happy while the dry run failed.
+	if out.is_empty() and not reasons.is_empty():
+		out.append("Your kitchen can't serve the menu — something is missing.")
 	return out
+
+
+## What a raw dry-run line is about, for dedup: the missing station tag (or a
+## structural thing like staff / the tray cycle).
+static func _reason_key(text: String) -> String:
+	if text.contains("worker"):
+		return "workers"
+	if text.contains("washing"):
+		return "washing"
+	if text.contains("delivery point"):
+		return "delivery"
+	var tag := _missing_tag(text)
+	return "tag:" + tag if not tag.is_empty() else "other:" + text
+
+
+## One raw dry-run line as the player sees it: "Your kitchen can't make X — you
+## need a Y.", Y being the shop piece(s) that carry the missing station tag.
+static func _blunt_reason(text: String) -> String:
+	if text.contains("worker"):
+		return "Your kitchen has no staff — place a Worker Post."
+	if text.contains("washing"):
+		return "Your kitchen can't wash trays — you need a Sink."
+	if text.contains("delivery point"):
+		return "Your kitchen has no delivery point — orders can never be handed over."
+	if text.contains("no free "):
+		# "no free assembly station to make Burger": the station exists, so this
+		# is the planner echoing a failure further up the tree (or a station that
+		# is busy, which cannot happen while the build phase is idle). The real
+		# reason is its own line; this one is noise.
+		return ""
+	var tag := _missing_tag(text)
+	var item := _missing_item(text)
+	if tag.is_empty() or item.is_empty():
+		# The cascade ("cannot make Burger: no way to provide bread") and any
+		# other planner-internal line: the structural reason already covers it.
+		return ""
+	var fixers := _fixer_phrase(StringName(tag))
+	if fixers.is_empty():
+		return "Your kitchen can't make %s — this map has no %s station." % [item, tag]
+	return "Your kitchen can't make %s — you need %s." % [item, fixers]
+
+
+## The station tag a planner warning names, or "" when it names none.
+static func _missing_tag(text: String) -> String:
+	for marker in [" station to get ", " station to make ", " station to plate "]:
+		var idx := text.find(marker)
+		if idx < 0:
+			continue
+		var head := text.substr(0, idx).trim_prefix("no ")
+		head = head.trim_prefix("free ")
+		return head.split(",")[0].strip_edges()
+	return ""
+
+
+## The item (or dish) a planner warning names, or "" when it names none.
+static func _missing_item(text: String) -> String:
+	for marker in [" station to get ", " station to make ", " station to plate "]:
+		var idx := text.find(marker)
+		if idx < 0:
+			continue
+		return text.substr(idx + marker.length()).strip_edges().trim_suffix(" from")
+	return ""
+
+
+## The shop pieces that fix a missing station tag, as shop copy ("a Shelf",
+## "a Cutting Table or a Plating Station"). "" when nothing on sale carries it
+## (a structural point like the intake, or a map-only piece).
+static func _fixer_phrase(tag: StringName) -> String:
+	var names := PackedStringArray()
+	for def in FurnitureCatalog.shop_items():
+		if def.has_tag(tag):
+			names.append(_with_article(def.display_name))
+	if names.is_empty():
+		return ""
+	if names.size() == 1:
+		return names[0]
+	var head := PackedStringArray()
+	for i in names.size() - 1:
+		head.append(names[i])
+	return "%s or %s" % [", ".join(head), names[names.size() - 1]]
+
+
+static func _with_article(name: String) -> String:
+	var first := name.substr(0, 1).to_lower()
+	return ("an " if "aeiou".contains(first) else "a ") + name
 
 
 func start_day() -> bool:

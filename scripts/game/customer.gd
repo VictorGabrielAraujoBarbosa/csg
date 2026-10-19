@@ -6,25 +6,39 @@ extends Node3D
 ## Like [Worker], the simulation half ([method tick]) only knows cells and ticks
 ## — pick a target, A* to it, eat it on contact — while [method _process]
 ## interpolates the view in real time (glide, chunky hop, glow pulse).
+##
+## The hunt paths in [b]ghost mode[/b] ([method Pathfinder.find_path] with
+## `ghost = true`): the mob walks through walls and over furniture, so a counter
+## or a closed wall can never stall the attack (see
+## [method Kitchen.walkable_for_ghost]). The workers keep the strict rules.
 
 enum State { HUNT, EAT }
 
 const TOILET_SCENE := "res://assets/kenney_furniture-kit/Models/GLTF format/toilet.glb"
 const GREEN := Color(0.35, 1.0, 0.25)
+## "No cell": the sentinel a forgotten chase stores (never a real grid cell).
+const NO_CELL := Vector2i(-9999, -9999)
+## Ticks between retries when the prey cannot be reached at all (a floor island
+## the customer's floor does not touch). A hunt never re-searches every tick.
+const REPATH_TICKS := 10
 
 var service: Service
 var cell := Vector2i.ZERO
 var state := State.HUNT
 var meals := 0
 var tint_color := GREEN
+## How many times the hunt re-planned its path. Tools read this: a customer with
+## nobody to chase, or with an unreachable prey, must leave it nearly flat.
+var repaths := 0
 
 var _target: Worker = null
-var _target_cell := Vector2i(-9999, -9999)
+var _target_cell := NO_CELL
 var _eat_left := 0
 var _enter_left := 0
 var _path: Array[Vector2i] = []
 var _path_index := 0
 var _cell_ticks := 0
+var _retry_left := 0
 
 var _visual_from := Vector3.ZERO
 var _visual_to := Vector3.ZERO
@@ -39,7 +53,7 @@ var _materials: Array[StandardMaterial3D] = []
 
 func setup(p_service: Service, start_cell: Vector2i, tint := GREEN) -> void:
 	service = p_service
-	cell = start_cell
+	cell = _entry_cell(start_cell)
 	tint_color = tint
 	name = "Customer"
 	_body = Node3D.new()
@@ -82,7 +96,7 @@ func tick(_now: int) -> void:
 			_eat_left -= 1
 			if _eat_left <= 0:
 				state = State.HUNT
-				_target = null
+				_forget_hunt()
 		State.HUNT:
 			_hunt()
 
@@ -90,20 +104,29 @@ func tick(_now: int) -> void:
 func _hunt() -> void:
 	var prey := _pick_prey()
 	if prey == null:
+		# Nobody left to eat (the service ends the mob when the last worker
+		# goes): stand still instead of re-planning an empty hunt every tick.
+		_forget_hunt()
 		return
 	if prey.cell == cell:
 		service.eat_worker(prey, self)
 		meals += 1
 		state = State.EAT
 		_eat_left = maxi(service.customer_chew_ticks, 1)
+		_forget_hunt()
 		return
-	if prey != _target or prey.cell != _target_cell or _path.is_empty():
+	# Re-plan the moment the prey moves (the path was built to its old cell),
+	# and retry on a slow cooldown when there is no route at all — a customer
+	# that cannot reach anyone stands its ground rather than searching forever.
+	if prey != _target or prey.cell != _target_cell or (_path.is_empty() and _retry_left <= 0):
 		_target = prey
 		_target_cell = prey.cell
-		_path = Pathfinder.find_path(service.kitchen, cell, prey.cell)
+		_path = Pathfinder.find_path(service.kitchen, cell, prey.cell, [], true)
 		_path_index = 0
-		_cell_ticks = 0
+		repaths += 1
+		_retry_left = REPATH_TICKS if _path.is_empty() else 0
 	if _path.is_empty():
+		_retry_left = maxi(_retry_left - 1, 0)
 		return
 	_cell_ticks += 1
 	if _cell_ticks < maxi(service.customer_ticks_per_cell, 1):
@@ -113,6 +136,41 @@ func _hunt() -> void:
 		_path_index += 1
 		cell = _path[_path_index]
 		_begin_step(cell)
+
+
+## Drops the current chase (the prey was eaten, or there is nobody left).
+func _forget_hunt() -> void:
+	_target = null
+	_target_cell = NO_CELL
+	_path.clear()
+	_path_index = 0
+	_retry_left = 0
+
+
+## The cell the customer actually appears on. The service spawns it on the
+## window edge's inside cell, but a piece placed against the window can cover
+## that cell (the service then falls back to the cell outside the wall). A ghost
+## has to start on floor to walk anywhere, so take the nearest floor cell: the
+## monster climbs in one cell further instead of standing outside forever.
+func _entry_cell(start: Vector2i) -> Vector2i:
+	var kitchen := service.kitchen if service != null else null
+	if kitchen == null or kitchen.walkable_for_ghost(start):
+		return start
+	var seen := {start: true}
+	var queue: Array[Vector2i] = [start]
+	var visited := 0
+	while not queue.is_empty() and visited < 256:
+		var current: Vector2i = queue.pop_front()
+		visited += 1
+		for step in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var next: Vector2i = current + step
+			if seen.has(next):
+				continue
+			seen[next] = true
+			if kitchen.walkable_for_ghost(next):
+				return next
+			queue.append(next)
+	return start
 
 
 ## The closest living worker (Manhattan distance, stable tie-break by order).
@@ -137,8 +195,15 @@ func despawn() -> void:
 # Presentation (real time)
 # ---------------------------------------------------------------------------
 
+## Where a customer stands on a cell: on the floor, or on top of whatever it is
+## walking over (a counter, a structural table). Presentation only — the
+## simulation is the grid cell; this is just so a ghost reads as climbing over
+## the furniture rather than wading through it.
 func _cell_world(c: Vector2i) -> Vector3:
-	return Vector3(c.x, 0.0, c.y)
+	var y := 0.0
+	if service != null and service.kitchen != null:
+		y = maxf(service.kitchen.surface_height(c) - 0.05, 0.0)
+	return Vector3(c.x, y, c.y)
 
 
 func _begin_step(next_cell: Vector2i) -> void:

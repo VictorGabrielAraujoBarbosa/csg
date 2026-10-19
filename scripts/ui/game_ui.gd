@@ -109,9 +109,16 @@ var _summary_label: Label
 ## it lives inside the summary's column, so a name lookup from the panel missed it.
 var _summary_button: Button
 var _menu: PanelContainer
+## What the detail card currently describes, so a per-frame refresh can early
+## out ("grab:12", "hover:31", "select:fryer", "none:").
+var _detail_key := ""
+## The shop category tabs, in header order (All first).
+var _tabs: Array[Button] = []
 var _cards: Dictionary = {}
-## Order id -> the countdown label on its card.
+## Order id -> the countdown number label on its card.
 var _card_timers: Dictionary = {}
+## Order id -> the "angry in" caption above that number.
+var _card_captions: Dictionary = {}
 var _horror_running := false
 ## True while an ending sequence owns the cutscene director: the horror chase,
 ## the DAY LOST card, the farewell card and the return to the menu are one
@@ -142,18 +149,20 @@ var _player_index := 0
 var _streams: Dictionary = {}
 
 
-## Only the work-tile indicator needs per-frame attention; it early-outs when
-## the hovered piece has not changed. While the menu is up the attract loop
-## also runs here.
+## The work-tile indicator, the detail card and the order countdowns need
+## per-frame attention; each early-outs when nothing about it has changed. While
+## the menu is up the attract loop also runs here.
 func _process(delta: float) -> void:
 	if not _started:
 		_attract(delta)
 	_update_work_markers()
+	_update_detail()
 	_update_order_timers()
 
 
 ## How long each order has left before it costs the day. The limit lives on the
-## day controller; the clock is the simulation tick.
+## day controller; the clock is the simulation tick. The number is the loudest
+## thing on the card and turns red in the last quarter of the window.
 func _update_order_timers() -> void:
 	if service == null or day == null or _card_timers.is_empty():
 		return
@@ -165,9 +174,14 @@ func _update_order_timers() -> void:
 			continue
 		var left := limit - float(service.tick - order.created_tick)
 		var seconds := maxi(int(ceil(left / tps)), 0)
+		var angry := left < limit * 0.25
 		label.text = "%ds" % seconds
 		label.add_theme_color_override("font_color",
-			Color(1.0, 0.35, 0.3) if left < limit * 0.25 else Color(0.75, 0.82, 0.92))
+			Color(1.0, 0.35, 0.3) if angry else Color(0.75, 0.82, 0.92))
+		var caption := _card_captions.get(order.id) as Label
+		if caption != null and is_instance_valid(caption):
+			caption.add_theme_color_override("font_color",
+				Color(1.0, 0.5, 0.45) if angry else Color(0.62, 0.68, 0.78))
 
 
 func _ready() -> void:
@@ -309,10 +323,11 @@ func _build_top_bar() -> void:
 	var bar := PanelContainer.new()
 	bar.name = "TopBar"
 	bar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	bar.offset_left = -560.0
+	# Wide enough for a full "your kitchen can't make X — you need a Y" line.
+	bar.offset_left = -780.0
 	bar.offset_top = 10.0
 	bar.offset_right = -12.0
-	bar.offset_bottom = 74.0
+	bar.offset_bottom = 84.0
 	bar.add_theme_stylebox_override("panel", _panel_style())
 	add_child(bar)
 	_top_bar = bar
@@ -324,11 +339,12 @@ func _build_top_bar() -> void:
 	row.add_child(_money_label)
 	_day_label = Label.new()
 	_day_label.add_theme_font_size_override("font_size", 18)
-	_day_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(_day_label)
 	_reason_label = Label.new()
 	_reason_label.add_theme_font_size_override("font_size", 13)
 	_reason_label.add_theme_color_override("font_color", Color(1.0, 0.7, 0.45))
+	_reason_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_reason_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(_reason_label)
 	_start_button = Button.new()
 	_start_button.text = "Start Day"
@@ -389,6 +405,9 @@ func _build_catalog() -> void:
 	title.add_theme_font_size_override("font_size", 16)
 	header.add_child(title)
 	_tab_group = ButtonGroup.new()
+	_tabs.clear()
+	# All first, then the gameplay groupings in catalog order: what holds
+	# ingredients, what runs recipes, who does the work.
 	var categories: Array[StringName] = [&""]
 	for category in FurnitureCatalog.shop_categories():
 		categories.append(category)
@@ -399,10 +418,12 @@ func _build_catalog() -> void:
 		tab.focus_mode = Control.FOCUS_NONE
 		tab.button_group = _tab_group
 		tab.button_pressed = category == &""
-		tab.custom_minimum_size = Vector2(84, 26)
+		tab.custom_minimum_size = Vector2(96, 26)
 		tab.add_theme_font_size_override("font_size", 13)
+		tab.set_meta("category", category)
 		tab.pressed.connect(_on_tab_pressed.bind(category))
 		header.add_child(tab)
+		_tabs.append(tab)
 	_catalog_status = Label.new()
 	_catalog_status.add_theme_font_size_override("font_size", 13)
 	_catalog_status.add_theme_color_override("font_color", Color(1.0, 0.78, 0.45))
@@ -434,7 +455,12 @@ func _build_catalog() -> void:
 	detail_row.add_theme_constant_override("separation", 8)
 	detail_column.add_child(detail_row)
 	_detail_icon = TextureRect.new()
-	_detail_icon.custom_minimum_size = Vector2(44, 44)
+	# The isometric renders are tall (the fridge is 72x147): without
+	# EXPAND_IGNORE_SIZE the texture's own height becomes the row's minimum and
+	# pushes the description out of the card.
+	_detail_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_detail_icon.custom_minimum_size = Vector2(52, 64)
+	_detail_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_detail_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	detail_row.add_child(_detail_icon)
 	var detail_text := VBoxContainer.new()
@@ -483,10 +509,34 @@ func _on_tab_pressed(category: StringName) -> void:
 	_play(CLICK_SOUND)
 
 
-## The detail card follows whatever the placer currently has selected.
+## The detail card describes what the player is looking at, in this order: the
+## piece in hand, the placed piece under the cursor, the shop selection. The
+## hover fields are the placer's own, so the card and the work-tile indicator
+## can never disagree about which piece is being pointed at.
 func _update_detail() -> void:
-	var def: FurnitureDef = placer.current_def() if placer != null else null
-	if def == null or not def.shop:
+	if _catalog_panel == null or not _catalog_panel.visible:
+		return
+	var def: FurnitureDef = null
+	var inst: FurnitureInstance = null
+	var mode := "none"
+	if placer != null:
+		if placer._grabbed != null:
+			inst = placer._grabbed
+			mode = "grab"
+		elif placer._has_hover and kitchen != null:
+			inst = kitchen.furniture_at(placer._hover_cell)
+			if inst != null:
+				mode = "hover"
+		if inst == null and placer.has_selection and placer.current_def() != null:
+			def = placer.current_def()
+			mode = "select"
+	if inst != null:
+		def = inst.def
+	var key := "%s:%s" % [mode, def.id if def != null else ""]
+	if key == _detail_key:
+		return
+	_detail_key = key
+	if def == null:
 		_detail_icon.texture = null
 		_detail_name.text = "Nothing selected"
 		_detail_price.text = ""
@@ -500,8 +550,14 @@ func _update_detail() -> void:
 	if not def.description.is_empty():
 		lines.append(def.description)
 	lines.append("%d x %d m   (%s)" % [size.x, size.y, ", ".join(def.tags)])
-	lines.append("LMB place   R rotate")
-	lines.append("RMB remove   (bought pieces refund)")
+	match mode:
+		"grab":
+			lines.append("LMB drop it here   RMB put it back")
+		"hover":
+			lines.append("LMB pick up   RMB sell")
+		_:
+			lines.append("LMB place   R rotate")
+			lines.append("RMB sell   (full price back)")
 	_detail_info.text = "\n".join(lines)
 
 
@@ -934,6 +990,7 @@ func _on_order_completed(order: Order) -> void:
 		return
 	_cards.erase(order.id)
 	_card_timers.erase(order.id)
+	_card_captions.erase(order.id)
 	var card := wrap.get_child(0) as Control
 	if card != null:
 		var tween := create_tween().set_parallel()
@@ -948,6 +1005,7 @@ func _clear_cards() -> void:
 		wrap.queue_free()
 	_cards.clear()
 	_card_timers.clear()
+	_card_captions.clear()
 
 
 func _add_card(order: Order) -> void:
@@ -958,6 +1016,9 @@ func _add_card(order: Order) -> void:
 	card.set_anchors_preset(Control.PRESET_FULL_RECT)
 	card.add_theme_stylebox_override("panel", _card_style())
 	wrap.add_child(card)
+	# A card can be taller than the 104 px default (an order with modifiers): the
+	# wrap has to reserve what the card really needs or the cards overlap.
+	card.visible = false  # no half-built card in a frame
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	card.add_child(row)
@@ -972,27 +1033,54 @@ func _add_card(order: Order) -> void:
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(info)
 	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
 	info.add_child(header)
 	var title := Label.new()
+	title.name = "Dish"
 	title.text = order.dish_name
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	title.add_theme_font_size_override("font_size", 17)
 	header.add_child(title)
+	# The countdown is the loudest thing on the card: a plain-language caption
+	# over a number several times the size of the dish name.
+	var clock := VBoxContainer.new()
+	clock.name = "Clock"
+	clock.alignment = BoxContainer.ALIGNMENT_CENTER
+	clock.add_theme_constant_override("separation", 0)
+	header.add_child(clock)
+	var caption := Label.new()
+	caption.name = "AngryIn"
+	caption.text = "angry in"
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	caption.add_theme_font_size_override("font_size", 12)
+	caption.add_theme_color_override("font_color", Color(0.62, 0.68, 0.78))
+	clock.add_child(caption)
 	var timer := Label.new()
 	timer.name = "Timer"
-	timer.add_theme_font_size_override("font_size", 16)
-	header.add_child(timer)
+	timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	timer.add_theme_font_size_override("font_size", 34)
+	clock.add_child(timer)
 	_card_timers[order.id] = timer
+	_card_captions[order.id] = caption
 	for id: StringName in order.adds:
 		info.add_child(_modifier_row(id))
 	for id: StringName in order.removes:
 		info.add_child(_modifier_row(id))
 	_cards[order.id] = wrap
-	# Slide down from above the panel.
-	card.position.y = -120.0
+	var height := maxf(104.0, card.get_combined_minimum_size().y)
+	wrap.custom_minimum_size = Vector2(0, height)
+	card.visible = true
+	# Slide down from above the panel by moving both vertical offsets together.
+	# Never `position` here: the wrap has not been laid out yet, so setting a
+	# position would bake a horizontal offset into the card — it would end up
+	# wider than the order panel and push its countdown off the screen.
+	card.offset_top = -height
+	card.offset_bottom = -height
 	card.modulate.a = 0.0
 	var tween := create_tween().set_parallel()
-	tween.tween_property(card, "position:y", 0.0, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "offset_top", 0.0, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "offset_bottom", 0.0, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(card, "modulate:a", 1.0, 0.25)
 	_play(CARD_SOUND)
 
