@@ -285,6 +285,14 @@ orders, jobs, items, workers at shutdown).
   owned, so they don't get saved into the scene.
 - `StationInstance.work_target()` is the cell a worker operates from; a 1×1 station's work
   target is its own cell (the worker stands adjacent).
+- **Exporting**: the maps are plain `.txt` read with `FileAccess`, and `.txt` is not a resource type —
+  `export_filter="all_resources"` silently drops them, so the built game boots to an empty backdrop
+  ("the models do not show up" is really "there is no world"). Both presets in `export_presets.cfg`
+  therefore carry `include_filter="resources/layouts/*.txt"`. Gate a build with
+  `tools/pck_audit.py <pack> .` and verify runtime-computed asset paths inside the shipped pack with
+  `tools/export_probe.gd`. The **web preset ships with thread support OFF**: it then runs on itch and
+  from any plain static host, and this project loses nothing (audio graph identical). Turning threads
+  on makes COOP/COEP mandatory.
 - **A scene-authored `material_override` does not survive placement**: `_apply_furniture_tints`
   clears overrides (it has to — the drag ghost *is* an override), so a prop cannot ship its own
   paint that way. `resources/props/mascot_*.tscn` carry their colours on the meshes' own surface

@@ -8,3 +8,6 @@
 assets/*
 !assets/music/
 *.import
+# Exported builds are regenerated, not committed
+builds/*
+!builds/.gdignore
