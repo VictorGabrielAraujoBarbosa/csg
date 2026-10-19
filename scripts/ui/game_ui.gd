@@ -441,7 +441,7 @@ func _build_catalog() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(scroll)
 	_catalog_grid = GridContainer.new()
-	_catalog_grid.columns = 3
+	_catalog_grid.columns = 2
 	_catalog_grid.add_theme_constant_override("h_separation", 8)
 	_catalog_grid.add_theme_constant_override("v_separation", 8)
 	scroll.add_child(_catalog_grid)
