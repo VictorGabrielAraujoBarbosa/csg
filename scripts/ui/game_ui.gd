@@ -499,10 +499,11 @@ func _rebuild_shop(category: StringName) -> void:
 			continue
 		var button := Button.new()
 		button.text = "%s\n$%d" % [def.display_name, def.cost]
-		button.custom_minimum_size = Vector2(126, 50)
+		button.custom_minimum_size = Vector2(134, 48)
+		button.add_theme_font_size_override("font_size", 12)
 		button.tooltip_text = ", ".join(def.tags)
 		button.icon = _icon(def)
-		button.add_theme_constant_override("icon_max_width", 34)
+		button.add_theme_constant_override("icon_max_width", 30)
 		button.toggle_mode = true
 		button.focus_mode = Control.FOCUS_NONE
 		button.set_meta("cost", def.cost)
