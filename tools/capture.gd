@@ -196,7 +196,7 @@ func _ready() -> void:
 			" | furniture ", kitchen.data.furniture.size(), " -> ", reparsed.furniture.size(),
 			" match=", furniture_match)
 	if not shoot_only and "--pixeltest" in OS.get_cmdline_user_args() and kitchen != null:
-		kitchen.paint_floor_tint(Vector2i(11, 5), Color(0.95, 0.35, 0.35))
+		kitchen.paint_floor_tint(Vector2i(10, 2), Color(0.95, 0.35, 0.35))
 	if not shoot_only and "--paint-demo" in OS.get_cmdline_user_args() and kitchen != null:
 		_paint_demo(kitchen)
 	if not shoot_only and "--item-showcase" in OS.get_cmdline_user_args():
@@ -657,11 +657,11 @@ func _pixel_test(image: Image, kitchen: Kitchen, rig: CameraRig) -> void:
 	var cam := rig.get_node_or_null("Camera3D") as Camera3D
 	if cam == null:
 		return
-	var a := _sample_cell(image, cam, kitchen, Vector2i(4, 5))
-	var b := _sample_cell(image, cam, kitchen, Vector2i(4, 6))
+	var a := _sample_cell(image, cam, kitchen, Vector2i(4, 3))
+	var b := _sample_cell(image, cam, kitchen, Vector2i(4, 4))
 	var delta := absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
 	_expect(delta > 0.004, "checker: adjacent floor tiles differ (delta %.4f)" % delta)
-	var tinted := _sample_cell(image, cam, kitchen, Vector2i(11, 5))
+	var tinted := _sample_cell(image, cam, kitchen, Vector2i(10, 2))
 	_expect(tinted.r > tinted.g + 0.05 and tinted.r > tinted.b + 0.05,
 		"floor tint: painted cell renders red (%.2f %.2f %.2f)" % [tinted.r, tinted.g, tinted.b])
 
