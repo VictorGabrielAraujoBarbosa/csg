@@ -159,7 +159,9 @@ func _build_panel() -> void:
 	_decor_grid.add_theme_constant_override("v_separation", 4)
 	_decor_scroll.add_child(_decor_grid)
 	for def in FurnitureCatalog.all():
-		if def.shop:
+		if def.shop and def.category != &"decor":
+			# On-sale production pieces belong in the shop; the designer's palette
+			# shows the dev pieces and the decoration.
 			continue
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(56, 44)

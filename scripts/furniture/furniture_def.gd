@@ -35,8 +35,8 @@ extends Resource
 ## One line for the shop card: what this piece does for the kitchen.
 @export_multiline var description := ""
 @export var tags: Array[StringName] = []
-## Buyable in the build-phase shop. Decor pieces are map-authoring only: they
-## stay in the catalog (dev maps, the level designer) but not on sale.
+## On sale in the build-phase shop. Decoration is sold too, but only in the
+## Decoration tab: the default "All" view shows production pieces exclusively.
 @export var shop := false
 ## Shop grouping: "storage", "workstations", "workers" (or "decor").
 @export var category: StringName = &"decor"

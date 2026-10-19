@@ -26,12 +26,15 @@ Landed so far:
   the wall builder draws one native piece; a lone legacy edge still renders squeezed. This also
   fixed a real bug: the builder's partner search had its offsets swapped, so *no* feature ever
   paired and every window/doorway in the game was a squeezed half-width sliver.
-- **Shop vs decor**: `FurnitureDef.shop` + `category`. The shop is everything with a job and its
-  tabs are gameplay groupings: **Storage** (shelf, fridge — base ingredients come from a `storage`
-  station, so a kitchen without one cannot cook), **Workstations** (stove, sink, fryer, assembly
-  table, counter, cutting table, plating station — anything a recipe runs on or that holds work)
-  and **Workers** (the post), with All in catalog order. Bars, tables, sofas, plants and the
-  redundant sizes stay in the catalog for dev-authored maps only.
+- **Shop vs decor**: `FurnitureDef.shop` + `category`. Tabs are gameplay groupings:
+  **Storage** (shelf, fridge, large fridge, drawer counter — base ingredients come from a `storage`
+  or `cold` station), **Workstations** (stove, sink, fryer, assembly table, cutting table, plating
+  station, side table — anything a recipe runs on), **Workers** (the post) and **Decoration**
+  (counter, bars, bin, tables, chairs, sofas, desk, plant, shrine, dressed table). **"All" is the
+  production view** — it never shows decoration, which lives only in its own tab. Every decoration
+  description starts with `DECORATION` in capitals; production copy must not. The rule is
+  `FurnitureCatalog.production_items()`: production = a recipe runs on it or it provides
+  ingredients.
 - **Composed props** (`resources/props/*.tscn`): several Kenney models in one scene, measured
   like any piece (`cutting_table`, `plating_station`). `FurnitureDef.surface_override` puts items
   on the work surface rather than on the tallest decoration.

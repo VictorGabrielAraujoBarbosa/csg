@@ -388,7 +388,7 @@ func _build_catalog() -> void:
 	_catalog_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_catalog_panel.anchor_right = 0.72
 	_catalog_panel.offset_left = 12.0
-	_catalog_panel.offset_top = -306.0
+	_catalog_panel.offset_top = -390.0
 	_catalog_panel.offset_right = -12.0
 	_catalog_panel.offset_bottom = -12.0
 	_catalog_panel.add_theme_stylebox_override("panel", _panel_style())
@@ -406,8 +406,9 @@ func _build_catalog() -> void:
 	header.add_child(title)
 	_tab_group = ButtonGroup.new()
 	_tabs.clear()
-	# All first, then the gameplay groupings in catalog order: what holds
-	# ingredients, what runs recipes, who does the work.
+	# All first (the production view), then the gameplay groupings in catalog
+	# order: what holds ingredients, what runs recipes, who does the work, and
+	# last the decoration, which is buyable but never mixed into All.
 	var categories: Array[StringName] = [&""]
 	for category in FurnitureCatalog.shop_categories():
 		categories.append(category)
@@ -480,13 +481,21 @@ func _build_catalog() -> void:
 	_rebuild_shop(&"")
 
 
-## Rebuilds the card grid for a category ("" = everything on sale).
+## Rebuilds the card grid for a category ("" = the production catalog; the
+## Decoration tab is the only place decoration cards are ever shown).
 func _rebuild_shop(category: StringName) -> void:
 	_shop_category = category
 	for child in _catalog_grid.get_children():
+		# Removed from the tree right away, freed at frame end: a card from the
+		# previous tab must never linger in the grid (the All tab is the one a
+		# stale decoration card would pollute).
+		_catalog_grid.remove_child(child)
 		child.queue_free()
 	for def in FurnitureCatalog.shop_items():
-		if category != &"" and def.category != category:
+		if category == &"":
+			if def.category == &"decor":
+				continue  # All is the production view
+		elif def.category != category:
 			continue
 		var button := Button.new()
 		button.text = "%s\n$%d" % [def.display_name, def.cost]

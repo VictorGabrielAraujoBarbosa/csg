@@ -517,10 +517,11 @@ func _stage_ending(ui: Node, scene: Node) -> void:
 
 
 ## The UI screenshots in one run (--ui-shots): the shop with its gameplay tabs
-## and a filled description card, the Storage tab on its own, the detail card
-## following a hovered placed piece, and an order card with the big countdown.
-## Each shot is one frame, so the tweens that move the frame aside and slide the
-## cards in have to land first.
+## and a filled description card, the Storage tab on its own, the Decoration tab
+## (its cards and the DECORATION copy), the Workstations tab for contrast, the
+## detail card following a hovered placed piece, and an order card with the big
+## countdown. Each shot is one frame, so the tweens that move the frame aside and
+## slide the cards in have to land first.
 func _stage_ui_shots(scene: Node, sub: SubViewport) -> void:
 	var ui := scene.get_node_or_null("UI")
 	var service := scene.find_child("Service", true, false) as Service
@@ -530,21 +531,51 @@ func _stage_ui_shots(scene: Node, sub: SubViewport) -> void:
 		print("[ui-shots] missing UI, service, day controller or placer")
 		return
 	DirAccess.make_dir_recursive_absolute(SHOT_DIR)
-	# 1) the shop: the tabs plus a description card (the whole catalog on show).
-	#    The capture's placer is off, so the placement ghost is hidden by hand.
+	# 1) the shop: the tabs plus a description card (the production catalog on
+	#    show). The capture's placer is off, so the ghost is hidden by hand.
 	ui._rebuild_shop(&"")
+	_press_shop_tab(ui, &"")
 	placer.select_by_id(&"stove")
 	placer._hide()
 	ui._update_detail()
 	await _shoot(sub, SHOT_DIR + "/shop_tabs.png")
 	# 2) the Storage tab filters the grid to the pieces that hold ingredients.
 	ui._rebuild_shop(&"storage")
+	_press_shop_tab(ui, &"storage")
 	placer.select_by_id(&"fridge_stocked")
 	placer._hide()
 	ui._update_detail()
 	await _shoot(sub, SHOT_DIR + "/shop_storage.png")
-	# 3) a hovered placed piece fills the card, through the same hover state the
+	# 3) the Decoration tab: every card is marked DECORATION, and the detail card
+	#    carries the same copy (the counter is the author's own example).
+	ui._rebuild_shop(&"decor")
+	_press_shop_tab(ui, &"decor")
+	placer.select_by_id(&"counter")
+	placer._hide()
+	ui._update_detail()
+	await _shoot(sub, SHOT_DIR + "/shop_decor.png")
+	# 4) the shrine: the end of the tab, scrolled into view, so the last row of
+	#    decoration cards (and its copy) is on screen too.
+	var shop_scroll := ui._catalog_grid.get_parent() as ScrollContainer
+	if shop_scroll != null:
+		shop_scroll.scroll_vertical = 10000
+	placer.select_by_id(&"corporate_shrine")
+	placer._hide()
+	ui._update_detail()
+	await _shoot(sub, SHOT_DIR + "/shop_decor_shrine.png")
+	# 5) the Workstations tab for contrast: production copy, no DECORATION mark.
+	ui._rebuild_shop(&"workstations")
+	_press_shop_tab(ui, &"workstations")
+	if shop_scroll != null:
+		shop_scroll.scroll_vertical = 0
+	placer.select_by_id(&"stove")
+	placer._hide()
+	ui._update_detail()
+	await _shoot(sub, SHOT_DIR + "/shop_workstations.png")
+	# 6) a hovered placed piece fills the card, through the same hover state the
 	#    work-tile indicator reads.
+	ui._rebuild_shop(&"")
+	_press_shop_tab(ui, &"")
 	placer.clear_selection()
 	placer._has_hover = true
 	placer._hover_cell = Vector2i(3, 1)  # the demo kitchen's stove
@@ -553,7 +584,7 @@ func _stage_ui_shots(scene: Node, sub: SubViewport) -> void:
 	await _shoot(sub, SHOT_DIR + "/hover_detail.png")
 	placer._has_hover = false
 	ui._update_detail()
-	# 4) an order card mid-day: the countdown is the loudest thing on it.
+	# 7) an order card mid-day: the countdown is the loudest thing on it.
 	_reset_world(service)
 	service.sim_speed = 0.0
 	day.day = 0
@@ -580,6 +611,16 @@ func _stage_ui_shots(scene: Node, sub: SubViewport) -> void:
 		await _shoot(sub, SHOT_DIR + "/order_timer_angry.png")
 	else:
 		print("[ui-shots] the day could not start, no order-card shot")
+
+
+## Presses the shop tab a category's cards are shown under, so a staged
+## screenshot does not leave the highlight on All (the player reaches these
+## through the button, which the staging skips).
+func _press_shop_tab(ui: Node, category: StringName) -> void:
+	for tab in ui._tabs:
+		if StringName(tab.get_meta("category", &"")) == category:
+			tab.button_pressed = true
+			return
 
 
 ## Waits until [param text] is the card on screen (the ending chain is real
@@ -1312,9 +1353,9 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		var tab_texts: Array[String] = []
 		for tab in ui._tabs:
 			tab_texts.append(tab.text)
-		var wanted_tab_texts: Array[String] = ["All", "Storage", "Workstations", "Workers"]
+		var wanted_tab_texts: Array[String] = ["All", "Storage", "Workstations", "Workers", "Decoration"]
 		_expect(tab_texts == wanted_tab_texts,
-			"shop ui: the tab row is All + the three gameplay tabs (%s)" % str(tab_texts))
+			"shop ui: the tab row is All + the four gameplay tabs, Decoration last (%s)" % str(tab_texts))
 		ui._rebuild_shop(&"storage")
 		await get_tree().process_frame  # the old cards are only freed at frame end
 		var wrong_tab := 0
@@ -1324,7 +1365,43 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 				wrong_tab += 1
 		_expect(wrong_tab == 0 and ui._catalog_grid.get_child_count() > 0,
 			"shop ui: the Storage tab shows storage pieces only (%d cards)" % ui._catalog_grid.get_child_count())
+		# Every gameplay tab has cards, and a tab only ever shows its own pieces.
+		for category in FurnitureCatalog.shop_categories():
+			ui._rebuild_shop(category)
+			var tab_ids := _grid_ids(ui)
+			var tab_wrong := 0
+			for id in tab_ids:
+				var tab_piece := FurnitureCatalog.find(id)
+				if tab_piece == null or tab_piece.category != category:
+					tab_wrong += 1
+			_expect(tab_ids.size() > 0 and tab_wrong == 0,
+				"shop ui: the %s tab is never empty and holds only its own pieces (%d cards)" % [
+					FurnitureCatalog.category_label(category), tab_ids.size()])
+		# The All tab is the production view: a decoration card must never appear
+		# in it. The grid is rebuilt per tab (not filtered by hiding cards), so a
+		# tab switch is exactly where a stale card would survive.
 		ui._rebuild_shop(&"")
+		var all_ids := _grid_ids(ui)
+		var all_stray := _stray_decor(all_ids)
+		_expect(all_stray == 0 and all_ids.size() > 0,
+			"shop ui: the All tab is the production view, no decoration in it (%d cards)" % all_ids.size())
+		ui._rebuild_shop(&"decor")
+		var decor_ids := _grid_ids(ui)
+		var decor_missing := 0
+		for def in FurnitureCatalog.shop_items():
+			if def.category == &"decor" and not decor_ids.has(def.id):
+				decor_missing += 1
+		_expect(decor_ids.size() > 0 and decor_missing == 0 and not decor_ids.has(&"stove")
+			and not decor_ids.has(&"shelf_stocked") and decor_ids.has(&"counter")
+			and decor_ids.has(&"corporate_shrine") and decor_ids.has(&"table_dressed"),
+			"shop ui: the Decoration tab reaches every decoration piece (%d cards, %d missing)" % [
+				decor_ids.size(), decor_missing])
+		ui._rebuild_shop(&"")  # and back to All: the decoration cards must be gone
+		var back_ids := _grid_ids(ui)
+		var back_stray := _stray_decor(back_ids)
+		_expect(back_stray == 0 and back_ids.size() == all_ids.size(),
+			"shop ui: All -> Decoration -> All rebuilds the production grid cleanly (%d cards, %d stale)" % [
+				back_ids.size(), back_stray])
 		# --- detail card: it describes the piece under the cursor ---
 		if placer2 != null:
 			var hover_stove := kitchen.furniture_at(Vector2i(3, 1))
@@ -1467,16 +1544,21 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(wallet.money == purse, "money: refunds add back")
 		_expect(not wallet.try_spend(purse + 10), "money: spending more than the purse is refused")
 		_expect(wallet.money == purse, "money: a refused purchase changes nothing")
-		# --- shop, decor and composed props ---
+		# --- shop, decoration and composed props ---
 		var shop_ids: Array[StringName] = []
 		for def in FurnitureCatalog.shop_items():
 			shop_ids.append(def.id)
 		for wanted in [&"stove", &"sink", &"counter", &"assembly_table", &"worker_post", &"shelf_stocked", &"fridge_stocked"]:
 			_expect(shop_ids.has(wanted), "shop: %s is on sale" % wanted)
-		_expect(not shop_ids.has(&"plant") and not shop_ids.has(&"sofa") and not shop_ids.has(&"trash")
-			and not shop_ids.has(&"table_round"), "shop: decor and functionless pieces are not on sale")
+		# Decoration is buyable too, in its own tab: a legitimate money sink.
+		for wanted in [&"plant", &"sofa", &"trash", &"table_round", &"corporate_shrine", &"table_dressed"]:
+			_expect(shop_ids.has(wanted), "shop: %s is buyable decoration" % wanted)
+		_expect(not shop_ids.has(&"mascot_red") and not shop_ids.has(&"mascot_yellow"),
+			"shop: the mascots are venue pieces, never sold")
+		# The plain kit storage pieces are the redundant sizes: they stay in the
+		# catalog (the authored maps are built from them) but off the shelves.
 		_expect(not shop_ids.has(&"shelf") and not shop_ids.has(&"fridge"),
-			"shop: the plain kit storage pieces are decor (the stocked props are the ones on sale)")
+			"shop: the plain kit storage pieces stay off the shelves (the stocked props are the ones on sale)")
 		# Every shop card explains itself: what it does, what breaks without it.
 		var undescribed := 0
 		for def in FurnitureCatalog.shop_items():
@@ -1487,10 +1569,11 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(shop_stove != null and shop_stove.description.contains("Cooks raw patties")
 			and shop_stove.description.contains("cannot be made without one"),
 			"shop: the stove's copy says what it does and what breaks without it (%s)" % shop_stove.description)
-		# The tabs are gameplay groupings, not furniture types.
-		var wanted_categories: Array[StringName] = [&"storage", &"workstations", &"workers"]
+		# The tabs are gameplay groupings, not furniture types: what holds
+		# ingredients, what runs recipes, who does the work, what is decoration.
+		var wanted_categories: Array[StringName] = [&"storage", &"workstations", &"workers", &"decor"]
 		_expect(FurnitureCatalog.shop_categories() == wanted_categories,
-			"shop: three gameplay tabs in order (%s)" % str(FurnitureCatalog.shop_categories()))
+			"shop: four gameplay tabs, Decoration last (%s)" % str(FurnitureCatalog.shop_categories()))
 		for category in wanted_categories:
 			var in_tab := 0
 			for def in FurnitureCatalog.shop_items():
@@ -1499,8 +1582,66 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			_expect(in_tab > 0, "shop: the %s tab has pieces (%d)" % [
 				FurnitureCatalog.category_label(category), in_tab])
 		_expect(FurnitureCatalog.category_label(&"workers") == "Workers"
-			and FurnitureCatalog.category_label(&"workstations") == "Workstations",
-			"shop: the tabs read Storage / Workstations / Workers")
+			and FurnitureCatalog.category_label(&"workstations") == "Workstations"
+			and FurnitureCatalog.category_label(&"decor") == "Decoration",
+			"shop: the tabs read Storage / Workstations / Workers / Decoration")
+		# Every piece sits in one of the four tabs, and only decoration carries
+		# the marker: a production card must never read DECORATION.
+		var stray_categories := 0
+		var decor_count := 0
+		var decor_unmarked := 0
+		var production_marked := 0
+		for def in FurnitureCatalog.all():
+			if not wanted_categories.has(def.category):
+				stray_categories += 1
+			var marked: bool = def.description.begins_with("DECORATION")
+			if def.category == &"decor":
+				decor_count += 1
+				if not marked:
+					decor_unmarked += 1
+			elif marked:
+				production_marked += 1
+		_expect(stray_categories == 0, "shop: every piece's category is one of the four tabs")
+		_expect(decor_unmarked == 0, "shop: all %d decoration pieces are marked DECORATION" % decor_count)
+		_expect(production_marked == 0, "shop: no production piece is marked DECORATION")
+		# All is the production view: decoration is reachable only via its tab.
+		var production_ids: Array[StringName] = []
+		for def in FurnitureCatalog.production_items():
+			production_ids.append(def.id)
+		var shop_decor := 0
+		for def in FurnitureCatalog.shop_items():
+			if def.category == &"decor":
+				shop_decor += 1
+		_expect(production_ids.size() == shop_ids.size() - shop_decor and shop_decor > 0,
+			"shop: the All tab is the production shop (%d of %d on sale, %d decoration)" % [
+				production_ids.size(), shop_ids.size(), shop_decor])
+		_expect(not production_ids.has(&"counter") and not production_ids.has(&"corporate_shrine")
+			and not production_ids.has(&"table_dressed")
+			and production_ids.has(&"stove") and production_ids.has(&"shelf_stocked"),
+			"shop: All keeps the production pieces and drops the decoration")
+		# The borderline calls, pinned: the counter is somewhere to put things
+		# (no recipe runs on it), the bin and the bars carry tags no recipe uses,
+		# while the side table and the drawer counter really do prep.
+		var counter_def := FurnitureCatalog.find(&"counter")
+		_expect(counter_def != null and counter_def.shop and counter_def.category == &"decor"
+			and counter_def.description.begins_with("DECORATION"),
+			"shop: the counter is decoration (%s)" % counter_def.description)
+		var shrine_def := FurnitureCatalog.find(&"corporate_shrine")
+		var dressed_def := FurnitureCatalog.find(&"table_dressed")
+		_expect(shrine_def != null and shrine_def.shop and shrine_def.category == &"decor",
+			"shop: the corporate shrine is on sale in Decoration")
+		_expect(dressed_def != null and dressed_def.shop and dressed_def.category == &"decor",
+			"shop: the dressed table is on sale in Decoration")
+		var side_def := FurnitureCatalog.find(&"side_table")
+		_expect(side_def != null and side_def.shop and side_def.category == &"workstations"
+			and side_def.has_tag(&"prep"), "shop: the side table preps, so it is a workstation")
+		var drawer_def := FurnitureCatalog.find(&"drawer_counter")
+		_expect(drawer_def != null and drawer_def.shop and drawer_def.category == &"storage"
+			and drawer_def.has_tag(&"storage"),
+			"shop: the drawer counter provides ingredients, so it is storage")
+		_expect(FurnitureCatalog.find(&"stove").category == &"workstations"
+			and FurnitureCatalog.find(&"shelf_stocked").category == &"storage",
+			"shop: the stove and the shelf are production, not decoration")
 		var shelf_def := FurnitureCatalog.find(&"shelf_stocked")
 		var fridge_def := FurnitureCatalog.find(&"fridge_stocked")
 		_expect(shelf_def != null and shelf_def.has_tag(&"storage") and not shelf_def.has_tag(&"cold"),
@@ -1517,7 +1658,6 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		_expect(take_bread != null and take_bread.station_tag == &"storage",
 			"storage split: bread is fetched from dry storage")
 		_expect(take_tray == null, "storage split: a tray is not an ingredient (it keeps its own tag)")
-		_expect(FurnitureCatalog.shop_categories().size() >= 3, "shop: the pieces are grouped into categories")
 		var cutting := FurnitureCatalog.find(&"cutting_table")
 		_expect(cutting != null and cutting.shop, "props: the composed cutting table is a shop item")
 		if cutting != null:
@@ -1632,12 +1772,12 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 		# it, and drops the cascade behind it.
 		var blunt_storage := DayController._tidy_reasons(["no storage station to get Bread from"])
 		_expect(blunt_storage.size() == 1
-			and blunt_storage[0] == "Your kitchen can't make Bread — you need a Shelf.",
+			and blunt_storage[0] == "Your kitchen can't make Bread — you need a Drawer Counter, a Large Fridge or a Shelf.",
 			"gate: a missing storage station reads as a blunt sentence (%s)" % str(blunt_storage))
 		var blunt_cold := DayController._tidy_reasons(["no cold station to get Raw Patty from"])
 		_expect(blunt_cold.size() == 1
-			and blunt_cold[0] == "Your kitchen can't make Raw Patty — you need a Fridge.",
-			"gate: cold goods point at the fridge (%s)" % str(blunt_cold))
+			and blunt_cold[0] == "Your kitchen can't make Raw Patty — you need a Large Fridge or a Fridge.",
+			"gate: cold goods point at the fridges (%s)" % str(blunt_cold))
 		var blunt_cook := DayController._tidy_reasons([
 			"no cooking station to make Cooked Patty",
 			"cannot make Burger: no way to provide patty_cooked"])
@@ -1650,8 +1790,8 @@ func _self_test(kitchen: Kitchen, scene: Node) -> void:
 			"gate: a missing assembly station names the table (%s)" % str(blunt_assembly))
 		var blunt_prep := DayController._tidy_reasons(["no prep station to make Salad"])
 		_expect(blunt_prep.size() == 1
-			and blunt_prep[0] == "Your kitchen can't make Salad — you need a Cutting Table or a Plating Station.",
-			"gate: a missing prep station names both surfaces (%s)" % str(blunt_prep))
+			and blunt_prep[0] == "Your kitchen can't make Salad — you need a Cutting Table, a Plating Station, a Drawer Counter or a Side Table.",
+			"gate: a missing prep station names every surface that fixes it (%s)" % str(blunt_prep))
 		var blunt_staff := DayController._tidy_reasons(["no worker post placed"])
 		_expect(blunt_staff.size() == 1
 			and blunt_staff[0] == "Your kitchen has no staff — place a Worker Post.",
@@ -1800,6 +1940,25 @@ func _post_count(kitchen: Kitchen) -> int:
 		if inst.def.has_tag(&"worker"):
 			count += 1
 	return count
+
+
+## The piece ids currently laid out in the shop grid, in card order.
+func _grid_ids(ui: Node) -> Array[StringName]:
+	var out: Array[StringName] = []
+	for child in ui._catalog_grid.get_children():
+		out.append(StringName(child.get_meta("id", &"")))
+	return out
+
+
+## How many of [param ids] are decoration (or unknown) pieces: the All tab must
+## never contain one.
+func _stray_decor(ids: Array[StringName]) -> int:
+	var stray := 0
+	for id in ids:
+		var def := FurnitureCatalog.find(id)
+		if def == null or def.category == &"decor":
+			stray += 1
+	return stray
 
 
 func _expect(condition: bool, label: String) -> void:

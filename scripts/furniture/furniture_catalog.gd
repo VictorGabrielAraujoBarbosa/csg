@@ -38,10 +38,22 @@ static func shop_items() -> Array[FurnitureDef]:
 	return out
 
 
+## The shop pieces with a production role (everything but decoration). This is
+## what the All tab shows: decoration is a money sink, not a job, and it would
+## only add noise to the default view — it lives in its own tab.
+static func production_items() -> Array[FurnitureDef]:
+	var out: Array[FurnitureDef] = []
+	for def in all():
+		if def.shop and def.category != &"decor":
+			out.append(def)
+	return out
+
+
 ## The shop groupings that actually have something in them, in a fixed order:
-## what holds ingredients, what runs recipes, who does the work.
+## what holds ingredients, what runs recipes, who does the work, and what is
+## decoration (the only tab a piece with no production role may sit in).
 static func shop_categories() -> Array[StringName]:
-	var order: Array[StringName] = [&"storage", &"workstations", &"workers"]
+	var order: Array[StringName] = [&"storage", &"workstations", &"workers", &"decor"]
 	var out: Array[StringName] = []
 	for category in order:
 		for def in all():
@@ -60,7 +72,7 @@ static func category_label(category: StringName) -> String:
 		&"workers":
 			return "Workers"
 		&"decor":
-			return "Decor"
+			return "Decoration"
 	return String(category)
 
 
@@ -76,13 +88,15 @@ static func build() -> Array[FurnitureDef]:
 		"Fries potatoes. Orders with + fries cannot be made without one."))
 	out.append(_make("assembly_table", "Assembly Table", "table.glb", Vector2i(3, 1), 140, ["assembly"], &"workstations", true,
 		"Assembles finished dishes. The last step before plating."))
-	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["surface"], &"workstations", true,
-		"A plain surface to put things on. No recipes run here."))
+	out.append(_make("counter", "Counter", "kitchenCabinet.glb", Vector2i(1, 1), 60, ["surface"], &"decor", true,
+		"DECORATION — somewhere to put things down. No recipes run here."))
 	# Storage: base ingredients are taken from a `storage` station, so a kitchen
-	# with none of these cannot cook at all.
-	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"decor", false,
+	# with none of these cannot cook at all. The plain kit shelf and fridge are
+	# the redundant sizes (the authored maps use them): the shop sells the
+	# stocked props, so they stay in the catalog but off the shelves.
+	out.append(_make("shelf", "Shelf", "bookcaseClosed.glb", Vector2i(1, 1), 70, ["storage"], &"storage", false,
 		"Dry storage: bread, potatoes and sauce come from here."))
-	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"], &"decor", false,
+	out.append(_make("fridge", "Fridge", "kitchenFridge.glb", Vector2i(1, 1), 150, ["cold"], &"storage", false,
 		"Cold storage: raw patties, cheese, tomatoes and lettuce come from here."))
 	# Composed props: several kit models in one scene, measured like any piece.
 	out.append(_make_prop("cutting_table", "Cutting Table", "cutting_table.tscn", Vector2i(1, 1), 90,
@@ -92,36 +106,59 @@ static func build() -> Array[FurnitureDef]:
 		"Prep surface: salads and cheese slices are made here. Same job as the Cutting Table."))
 	out.append(_make("worker_post", "Worker Post", "rugDoormat.glb", Vector2i(1, 1), 60, ["worker"], &"workers", true,
 		"Adds one worker. More posts, more orders served at once."))
-	# --- decor: map-authoring pieces (the level designer places these) ---
-	out.append(_make("drawer_counter", "Drawer Counter", "kitchenCabinetDrawer.glb", Vector2i(1, 1), 80, ["prep", "surface", "storage"]))
-	out.append(_make("bar", "Serving Bar", "kitchenBar.glb", Vector2i(1, 1), 90, ["serving", "surface"]))
-	out.append(_make("bar_end", "Bar End", "kitchenBarEnd.glb", Vector2i(1, 1), 50, ["serving"]))
-	out.append(_make("trash", "Trash Can", "trashcan.glb", Vector2i(1, 1), 30, ["bin"]))
-	out.append(_make("table", "Table", "table.glb", Vector2i(2, 1), 70, ["dining", "surface"]))
-	out.append(_make("table_round", "Round Table", "tableRound.glb", Vector2i(2, 2), 90, ["dining", "surface"]))
-	out.append(_make("table_cross", "Banquet Table", "tableCross.glb", Vector2i(5, 3), 200, ["dining", "surface"]))
-	out.append(_make("side_table", "Side Table", "sideTable.glb", Vector2i(2, 1), 50, ["prep", "surface"]))
-	out.append(_make("chair", "Chair", "chair.glb", Vector2i(1, 1), 25, ["dining"]))
-	out.append(_make("bench", "Bench", "bench.glb", Vector2i(1, 1), 30, ["dining"]))
-	out.append(_make("sofa", "Sofa", "loungeSofa.glb", Vector2i(2, 1), 110, ["dining", "comfort"]))
-	out.append(_make("sofa_long", "Long Sofa", "loungeDesignSofa.glb", Vector2i(3, 1), 160, ["dining", "comfort"]))
-	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"]))
-	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220, ["storage", "cold"], &"decor", false,
+	# --- the rest of the production pieces: buyable in their own tab ---
+	# The drawer counter is storage with a worktop: it fetches the dry goods and
+	# can still prep on top, so it sits with the storage.
+	out.append(_make("drawer_counter", "Drawer Counter", "kitchenCabinetDrawer.glb", Vector2i(1, 1), 80,
+		["prep", "surface", "storage"], &"storage", true,
+		"Dry storage with a worktop: bread, potatoes and sauce come from here; salads and cheese slices are made on top."))
+	out.append(_make("side_table", "Side Table", "sideTable.glb", Vector2i(2, 1), 50, ["prep", "surface"],
+		&"workstations", true,
+		"Prep surface: salads and cheese slices are made here. Same job as the Cutting Table."))
+	out.append(_make("fridge_large", "Large Fridge", "kitchenFridgeLarge.glb", Vector2i(2, 1), 220,
+		["storage", "cold"], &"storage", true,
 		"Cold and dry storage in one: every ingredient comes from here."))
-	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"]))
+	# --- decoration: no recipe runs on these and they provide nothing ---
+	# Every decoration card is marked in capitals, so nobody buys a plant
+	# expecting it to cook. They are a money sink, not a job.
+	out.append(_make("bar", "Serving Bar", "kitchenBar.glb", Vector2i(1, 1), 90, ["serving", "surface"], &"decor", true,
+		"DECORATION — a serving bar. No recipes run here."))
+	out.append(_make("bar_end", "Bar End", "kitchenBarEnd.glb", Vector2i(1, 1), 50, ["serving"], &"decor", true,
+		"DECORATION — the end piece of a serving bar. No recipes run here."))
+	out.append(_make("trash", "Trash Can", "trashcan.glb", Vector2i(1, 1), 30, ["bin"], &"decor", true,
+		"DECORATION — a bin. No recipes run here."))
+	out.append(_make("table", "Table", "table.glb", Vector2i(2, 1), 70, ["dining", "surface"], &"decor", true,
+		"DECORATION — a dining table. No gameplay effect."))
+	out.append(_make("table_round", "Round Table", "tableRound.glb", Vector2i(2, 2), 90, ["dining", "surface"], &"decor", true,
+		"DECORATION — a round dining table. No gameplay effect."))
+	out.append(_make("table_cross", "Banquet Table", "tableCross.glb", Vector2i(5, 3), 200, ["dining", "surface"], &"decor", true,
+		"DECORATION — a long banquet table. No gameplay effect."))
+	out.append(_make("chair", "Chair", "chair.glb", Vector2i(1, 1), 25, ["dining"], &"decor", true,
+		"DECORATION — a chair. No gameplay effect."))
+	out.append(_make("bench", "Bench", "bench.glb", Vector2i(1, 1), 30, ["dining"], &"decor", true,
+		"DECORATION — a bench. No gameplay effect."))
+	out.append(_make("sofa", "Sofa", "loungeSofa.glb", Vector2i(2, 1), 110, ["dining", "comfort"], &"decor", true,
+		"DECORATION — a sofa. No gameplay effect."))
+	out.append(_make("sofa_long", "Long Sofa", "loungeDesignSofa.glb", Vector2i(3, 1), 160, ["dining", "comfort"], &"decor", true,
+		"DECORATION — a long sofa. No gameplay effect."))
+	out.append(_make("desk", "Desk", "desk.glb", Vector2i(2, 2), 100, ["desk", "surface"], &"decor", true,
+		"DECORATION — a desk. No gameplay effect."))
+	out.append(_make("plant", "Plant", "plantSmall1.glb", Vector2i(1, 1), 15, ["decor"], &"decor", true,
+		"DECORATION — no gameplay effect."))
 	# The two delivery platforms, recognised only by their colours. Never named,
 	# never sold: they simply stand in the restaurant.
 	var mascot_red := _make("mascot_red", "Red Mascot", "mascot_red.tscn", Vector2i(1, 1), 0,
-		["decor"], &"decor", false, "", PROPS_DIR)
+		["decor"], &"decor", false, "DECORATION — a delivery platform on display. No gameplay effect.", PROPS_DIR)
 	mascot_red.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
 	out.append(mascot_red)
 	var mascot_yellow := _make("mascot_yellow", "Yellow Mascot", "mascot_yellow.tscn", Vector2i(1, 1), 0,
-		["decor"], &"decor", false, "", PROPS_DIR)
+		["decor"], &"decor", false, "DECORATION — a delivery platform on display. No gameplay effect.", PROPS_DIR)
 	mascot_yellow.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
 	out.append(mascot_yellow)
-	# The two platforms on display together, behind a rail: unmistakably decor.
+	# The two platforms on display together, behind a rail: unmistakably decor,
+	# and (like every decoration piece) buyable in the Decoration tab.
 	var shrine := _make("corporate_shrine", "Corporate Shrine", "corporate_shrine.tscn", Vector2i(2, 1), 0,
-		["decor"], &"decor", false, "", PROPS_DIR)
+		["decor"], &"decor", true, "DECORATION — the two delivery platforms on display. No gameplay effect.", PROPS_DIR)
 	shrine.icon_path = ISOMETRIC_DIR + "toilet_NE.png"
 	out.append(shrine)
 	# Stocked versions of the storage pieces: the goods are part of the prop, so
@@ -138,7 +175,7 @@ static func build() -> Array[FurnitureDef]:
 	stocked_fridge.icon_path = ISOMETRIC_DIR + "kitchenFridge_NE.png"
 	out.append(stocked_fridge)
 	var dressed := _make("table_dressed", "Dressed Table", "table_dressed.tscn", Vector2i(2, 1), 90,
-		["dining", "surface"], &"decor", false, "", PROPS_DIR)
+		["dining", "surface"], &"decor", true, "DECORATION — a laid table. No gameplay effect.", PROPS_DIR)
 	dressed.surface_override = 0.65
 	dressed.icon_path = ISOMETRIC_DIR + "table_NE.png"
 	out.append(dressed)
